@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow"><title>FMCW radar · Signal explorer</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head><body>
+<header><div><span class="eyebrow">IWR1843 · EQUATION 25</span><h1>FMCW signal explorer</h1></div><div class="header-note">From a moving target<br>to complex baseband samples</div></header>
+<main>
+<aside class="controls">
+  <h2>Experiment</h2>
+  <label for="profile">Recorded chirp profile</label><select id="profile"><option value="6607">6607 · 79.5 GHz · 60 MHz/µs</option><option value="6606">6606 · 78 GHz · 100 MHz/µs</option></select>
+  <label for="x0">Radar along-path position <span>x₀</span><output id="x0out"></output></label><input id="x0" type="range" min="-10" max="10" step=".01" value=".12"><input id="x0number" type="number" aria-label="x0 in metres" min="-10" max="10" step=".01" value=".12">
+  <label for="y0">Perpendicular distance <span>y₀</span><output id="y0out"></output></label><input id="y0" type="range" min=".05" max="5" step=".01" value=".25"><input id="y0number" type="number" aria-label="y0 in metres" min=".05" max="5" step=".01" value=".25">
+  <label for="v">Target velocity <span>v</span><output id="vout"></output></label><input id="v" type="range" min="-14000" max="14000" step="1" value="6285"><input id="vnumber" type="number" aria-label="velocity in metres per second" min="-14000" max="14000" step="1" value="6285">
+  <label for="chirps">Number of chirps<output id="chirpsout"></output></label><input id="chirps" type="range" min="1" max="10" step="1" value="3">
+  <label for="mode">Receiver view</label><select id="mode"><option value="ideal">Ideal analogue I/Q mixer</option><option value="receiver">Approximate Complex-1x receiver</option></select>
+  <p class="small">The voltage plot and spectrogram sample at 12.5 MS/s. The analytic frequency remains unaliased.</p>
+  <div id="timing" class="timing"></div>
+  <button id="reset">Reset geometry</button>
+  <div id="status" role="status">Preparing simulation…</div>
+</aside>
+<section class="workspace">
+  <section class="panel chip"><div class="panel-title"><div><span class="eyebrow">THE SIGNAL PATH</span><h2>Inside the radar chip</h2></div><a href="chip.svg" download="iwr1843-signal-path.svg">Download diagram ↗</a></div>
+  <img src="chip.svg" alt="Chirp generator and PLL feed the transmitter and I/Q mixer local oscillator. The return passes through LNA, I/Q mixer, analogue IF, ADC, digital front end and ADC buffer to LVDS capture. DSP processing is a separate output path.">
+  <p>The shared chirp oscillator removes the RF carrier in the analogue mixer. <strong>You capture complex baseband I + iQ through the ADC/LVDS path</strong>; object lists come from later digital processing.</p></section>
+  <div class="two-col">
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">GEOMETRY · ROTATE / ZOOM</span><h2>Radar and target in 3D</h2></div><button id="viewreset" class="quiet">Reset view</button></div>
+      <div id="scene"><div class="scene-label">Radar (x₀, y₀) · Target (vt, 0)<br>Target marker enlarged; dimensions in metres</div></div>
+      <div class="transport"><button id="play">Play</button><input type="range" id="time" aria-label="Simulation time" min="0" max="1000" value="0"><output id="timeout"></output></div>
+      <div id="live" class="live" aria-live="off"></div><div id="chirptrack" class="chirp-track" aria-label="Chirp activity timeline"></div>
+      <div id="geometryread" class="readout"></div><p class="small">Playback shows target motion slowed for viewing.</p>
+    </section>
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">RAMP, TAIL AND IDLE</span><h2>Transmitted and received chirps</h2></div></div>
+      <div class="legend"><span class="tx">Transmit RF</span><span class="iq-q">Returned RF</span><span class="idle">ADC off</span></div>
+      <canvas id="rf" aria-label="Transmit and returned RF instantaneous frequency against elapsed time"></canvas><p class="small">RF curves are instantaneous frequency, not sampled 80 GHz oscillations. Shading includes the ramp tail and idle time.</p>
+    </section>
+  </div>
+  <div class="two-col">
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">ANALYTIC · BEFORE SAMPLING</span><h2>Instantaneous mixer frequency</h2></div></div>
+      <div class="legend"><span class="total">Total IF</span><span class="doppler">Carrier Doppler</span><span class="beat">Range beat</span><span class="alias">ADC alias</span></div>
+      <canvas id="frequency" aria-label="Analytic total IF, Doppler, range beat and aliased sampled frequency"></canvas><p class="small">f<sub>IF</sub> = −Sτ − [f₀ + S(u − τ)]τ̇. Approaching motion has positive carrier Doppler in this I/Q convention.</p>
+    </section>
+    <section class="panel"><div class="panel-title"><div><span class="eyebrow">AFTER ANALOGUE CHIRP DOWNCONVERSION</span><h2>Complex voltage · I and Q</h2></div></div>
+      <div class="legend"><span class="iq-i">I · real</span><span class="iq-q">Q · imaginary</span><span class="envelope">Envelope</span></div>
+      <canvas id="voltage" aria-label="Real and imaginary sampled complex mixer voltage with gaps between chirps"></canvas><p class="small">Relative amplitude ∝ 1/R², normalized to the return at 1 m for a fixed cross section. This is not calibrated volts or ADC counts. ADC-off gaps contain no samples.</p>
+    </section>
+  </div>
+  <section class="panel spectrum"><div class="panel-title"><div><span class="eyebrow">SAMPLED COMPLEX VOLTAGE</span><h2>Signed-frequency spectrogram</h2></div><span id="stftinfo" class="small"></span></div>
+    <div class="legend"><span class="total">Sampled analytic IF guide</span><span class="gradient">Power · −60 to 0 dB relative to peak</span></div>
+    <canvas id="spectrum" aria-label="Complex I/Q spectrogram with signed frequency, idle gaps and aliased analytic IF overlay"></canvas>
+    <p class="small">Each Hann-window STFT stays inside one chirp. Windows are never stitched across idle gaps. Zero-padding gives a smoother frequency grid; it does not improve resolution.</p>
+  </section>
+  <details class="panel explanation"><summary>Equations, timing and receiver assumptions</summary>
+    <div class="equations"><p>Radar: (x₀, y₀). Target: (vt, 0). Instantaneous geometric range: R(t) = √[(vt − x₀)² + y₀²].</p>
+    <p>Retarded reflection: τ(t) = 2R(t − τ/2)/c. The model solves this delay, then uses φ = 2π[−f₀τ − Suτ + Sτ²/2], z = A(R)e<sup>iφ</sup>.</p>
+    <p>Global target time continues through the idle interval. Ramp-local u resets at each chirp. ADC starts at 0 µs and acquires 128 samples over 10.24 µs; the model adds a 0.37 µs ramp tail and 3.10 µs idle. This 13.71 µs repetition interval is inferred from the reader and remains a timing assumption.</p>
+    <p>The ideal view shows an unfiltered I/Q mixer sampled at 12.5 MS/s. The receiver view uses quasistatic 175/350 kHz high-pass filters and an ideal −10 to 0 MHz Complex-1x sideband mask. It is a teaching approximation, not the measured transient or digital-filter response. Digital samples wrap into ±6.25 MHz. Very fast motion can leave the hardware passband.</p>
+    <p>One isotropic point target, fixed cross section, no clutter or noise; no surveyed chamber geometry or calibrated receiver gain. Geometry and signal evolve together over all chirps. No extra signal or integration energy is inserted into padding.</p></div>
+    <p>Model: <a href="model.mjs">model.mjs</a>, derived from the memo’s Equation 25 implementation. Chip architecture: <a href="https://www.ti.com/lit/ds/symlink/iwr1843.pdf" target="_blank" rel="noopener">TI IWR1843 datasheet, functional block diagram</a>.</p>
+  </details>
+</section></main><footer>FMCW radar · Interactive analytic simulation · One TX / RX branch shown · Drag the 3D scene to orbit</footer>
+<script type="module" src="app.mjs"></script></body></html>

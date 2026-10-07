@@ -1,0 +1,13 @@
+# Versions used for the verified simulator/reference model and 47-slide build.
+# Install in an appropriate Python environment; normal project commands use base conda.
+manim==0.19.2
+manim-slides==5.7.0
+numpy==2.1.3
+scipy==1.17.1
+h5py==3.14.0
+Pillow==11.0.0
+opencv-python==4.12.0.*
+matplotlib==3.10.0
+threadpoolctl>=3.0
+# Optional: torch is needed only for search_signed_velocities.py / show_signed_velocity.py.
+# Optional: xarray and a NetCDF backend are needed for the original read_subframe_res.py.

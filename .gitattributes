@@ -1,0 +1,2 @@
+# Keep vendored upstream code unchanged and collapse it in GitHub language stats.
+web/sim/vendor/* linguist-vendored whitespace=-space-before-tab

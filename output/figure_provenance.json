@@ -1,0 +1,66 @@
+{
+  "raw_fast_time_6607_frames_34_35_36_37.png": {
+    "sha256": "60ad97283e74631ac7e7f45459714162e86bb18fcd6d3b06fc311c389abd0779",
+    "generator": "capture_analysis/plot_raw_fast_time.py"
+  },
+  "background_subtracted_real_6607_frames_34_35_36_37.png": {
+    "sha256": "c8b51e0af64ac59d5eff6ab7375f7ad56bef4037c69da8b1106c5889cc76659c",
+    "generator": "capture_analysis/plot_background_subtracted_views.py"
+  },
+  "quiet_subtracted_6607_transition.png": {
+    "sha256": "0319439562289f5179f5c93c1129f1eeb2f010e845e686c5944249c06e2924a1",
+    "generator": "capture_analysis/plot_quiet_subtracted.py"
+  },
+  "four_chirp_noise_controls_6607.png": {
+    "sha256": "ce1092d1d11c4e288a864fe405ab37aa047feac4f9dc99e0258e73b64b599c07",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "chirp_spectra_6606_frames_43_44_45_46.png": {
+    "sha256": "b561d7d5f71663d3704b40629e55169afa3cb21eb601d14ce54dce613d7bc08e",
+    "generator": "capture_analysis/plot_chirp_spectra.py"
+  },
+  "background_subtracted_spectra_6606_frames_43_44_45_46.png": {
+    "sha256": "5a1fb945aac7f5e6caf22165b0b9252d9a8f592181d8620e094b8c46c579a39d",
+    "generator": "capture_analysis/plot_background_subtracted_views.py"
+  },
+  "chirp_spectra_6607_frames_34_35_36_37.png": {
+    "sha256": "b79e0c1aeca3af7d97c80bee2d254ad76fd967b45f7c04478406e17fa9a243b2",
+    "generator": "capture_analysis/plot_chirp_spectra.py"
+  },
+  "background_subtracted_spectra_6607_frames_34_35_36_37.png": {
+    "sha256": "c0a2a89cd8660d5664b53328ce38ecac5f66971080459507abdbf54a94baa7a9",
+    "generator": "capture_analysis/plot_background_subtracted_views.py"
+  },
+  "noise_match_6607_chirps_1608_1611.png": {
+    "sha256": "82a00423716d10690d0c6f1670c55560c8f0613e4f063d735464c090a4cc5192",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1612_1615.png": {
+    "sha256": "82ae6adbf694f085ac146544af9e280401350c0012e17ce10f5299be9ef2a70a",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1616_1619.png": {
+    "sha256": "a3c3cb1d1559056e546b86f461fd2932627ef9f14cf87bb245e0d231b762430e",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1620_1623.png": {
+    "sha256": "89c9ec843236925e910d07ba8a5bc427c89c03a1a485a9a7809fc755c2e51e45",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1624_1627.png": {
+    "sha256": "5441a91331197e84b1b1760b467d91461741cce12eeed5d962ceae57e86d7b9e",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1628_1631.png": {
+    "sha256": "403bb7d249b1cb70f8b09dd17d2a49ac93b108279845b77dda6b1add204758c9",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1632_1635.png": {
+    "sha256": "70d2d3ae1d867a3467ba7bb7ca1f9e3ea606957b9acb91b24614e4763a5e94bc",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  },
+  "noise_match_6607_chirps_1636_1639.png": {
+    "sha256": "33dc4f6ae0b90c79002b48df325ac54a2ab4c4bba1099de5e3be529abffe5717",
+    "generator": "capture_analysis/plot_noise_normalized_four_chirps.py"
+  }
+}
