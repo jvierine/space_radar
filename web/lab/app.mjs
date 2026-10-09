@@ -25,7 +25,7 @@ function setBusy(value) {
   busy = value;
   window.dispatchEvent(new CustomEvent("fmcw-busy", { detail: value }));
   for (const el of document.querySelectorAll(
-    ".settings input,.settings select,.settings button,#matchSettings input,#matchSettings select,#search,#compare,#scan",
+    ".settings input,.settings select,.settings button,#matchSettings input,#matchSettings select,#search,#scan",
   ))
     el.disabled = value || !loaded;
   $("cancel").disabled = !value;
@@ -828,7 +828,6 @@ $("zoomBackground").onclick = safe(() => {
   customView();
 });
 $("search").onclick = () => run();
-$("compare").onclick = () => run(true);
 $("scan").onclick = () => run(false, true);
 $("cancel").onclick = () => worker.postMessage({ type: "cancel" });
 for (const id of [
@@ -856,7 +855,6 @@ function methodUI() {
  $("axisR").textContent=radial?'r₀ (m)':'x₀ (m)';$("axisA").textContent=radial?'a₀ (m/s²)':'y₀ (m)';$("axisV").textContent=radial?'v₀ (m/s)':'v (m/s)';
  $("yMin").min=radial?'':'.001';$("yMax").min=radial?'':'.001';$("yMin").step=$("yMax").step=radial?'1000':'.01';
  $("mapRTitle").textContent=radial?'v₀ × r₀ · maximum over a₀':'v × x₀ · maximum over y₀';$("mapATitle").textContent=radial?'v₀ × a₀ · maximum over r₀':'v × y₀ · maximum over x₀';
- $("compare").textContent=radial?'Compare 2 / 4 / 8 / 16':'Compare 1 / 2 / 4 / 8 / 16';
  $("pulses").options[0].disabled=radial;if(radial && num('pulses')===1) $("pulses").value=8;
  $("modelNote").textContent=radial?'r(t) = r₀ + v₀ h + ½a₀h²; h is seconds from train midpoint. Positive v₀ = receding.':'R(t) = √((v t − x₀)² + y₀²); x₀ along track, y₀ perpendicular.';
  $("gridNote").textContent=radial?'Automatic grid; full bounds retained.':'Uniform grid over the specified bounds.';
