@@ -101,28 +101,18 @@ function setup(job, pulses, start) {
   );
 }
 async function bank(job, pulses, start, token, phase = "search", scan = false) {
-  if (pulses === 1 && job.algorithm === "fft") job = {...job, algorithm:"direct"};
   const started = performance.now();
   let total = setup(job, pulses, start);
   let automatic = null, cells = null;
+  let radialSpec=null;
   if (job.algorithm === "fft") {
-    const g = job.grid;
-    if (wasm.auto_begin(g.xMin,g.xMax,g.yMin,g.yMax,g.vMin,g.vMax,job.loss/100,150000) < 0)
-      throw Error("Invalid bounds or correction-phase loss limit.");
-    for (;;) {
-      if (token !== generation) return null;
-      const done = wasm.auto_build_batch(128);
-      if (done === -1) throw Error("The requested correction grid exceeds 150,000 cells. Narrow the bounds, shorten the coherent train, or increase the phase-loss allowance.");
-      if (done < 0) throw Error("Cannot bound corrections over this domain. Use positive y₀ and a finite velocity interval.");
-      wasm.auto_info(); automatic = [...copy()];
-      send("progress", {fraction:0, pulses,phase:`Building automatic grid · ${automatic[0]} accepted / ${automatic[1]} pending`});
-      if (done > 0) {total=done;break;}
-      await yieldUI();
-    }
-    wasm.auto_cells(); cells=copy();
+    const g=job.grid;
+    total=wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,16000000);
+    if(total<0) throw Error("Invalid radial bounds or more than 16 million r₀ / v₀ / a₀ grid points. Narrow the bounds or increase the phase tolerance.");
+    wasm.radial_info();radialSpec=[...copy()];
   }
   let windows = 0;
-  if (scan) {
+  if (scan && !radialSpec) {
     if ((job.scanStop - job.scanStart) / job.scanStride > 512)
       throw Error(
         "Limit each time scan to 512 starts; increase stride or shorten the interval.",
@@ -131,17 +121,21 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     if (!windows)
       throw Error("No intact independent trains in the scan interval.");
   }
-  const batch = job.algorithm === "fft" ? 8 : 32;
+  const batch = job.algorithm === "fft" ? 1 : 32;
   for (let first = 0; first < total; first += batch) {
     if (token !== generation) return null;
-    wasm.search_batch(first, batch);
+    if(radialSpec) wasm.radial_batch(first,batch); else wasm.search_batch(first, batch);
     send("progress", {
       fraction: Math.min((first + batch) / total, 1),
       pulses,
-      phase: `${phase} · ${total} ${automatic ? "midpoint correction cells" : "templates"}`,
+      phase: `${phase} · ${total} ${radialSpec ? "radial acceleration / velocity corrections" : "templates"}`,
       windows,
     });
     await yieldUI();
+  }
+  if (radialSpec) {
+    send("progress",{fraction:1,pulses,phase:"Verifying radial FFT candidates with the quadratic template"});
+    await yieldUI();if(token!==generation)return null;if(wasm.radial_refine(128)<0) throw Error("No valid positive-range quadratic templates in these bounds.");
   }
   if (automatic) {
     send("progress", {fraction:1,pulses,phase:"Refining FFT peaks with the physical template",windows});
@@ -170,7 +164,10 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     fit,
     observed,
     scanResults,
-    grid: job.grid,
+    grid: radialSpec ? {...job.grid,xN:radialSpec[0],yN:radialSpec[1],vN:radialSpec[2]} : job.grid,
+    radialSpec,
+    model: radialSpec ? "radial-quadratic" : "geometry",
+    midpoint: meta.parameters.T_adc+(meta.samples-1)/(2*meta.parameters.fs)+(pulses-1)*job.period/2,
     noiseRange,
     bgRange,
     receiver: job.receiver,
@@ -189,7 +186,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009midpoint1"),
+        fetch("core.wasm?v=20261009radial1"),
         {},
       );
       wasm = result.instance.exports;
@@ -214,7 +211,20 @@ onmessage = async ({ data: msg }) => {
     } else if (msg.type === "search") {
       const token = ++generation;
       const results = [];
-      for (const n of msg.compare ? [1, 2, 4, 8, 16] : [msg.pulses]) {
+      for (const n of msg.compare ? (msg.algorithm==="fft" ? [2,4,8,16] : [1,2,4,8,16]) : [msg.pulses]) {
+        if(msg.scan && msg.algorithm==='fft') {
+          let winner=null,scan=[];
+          for(let start=msg.scanStart;start<msg.scanStop;start+=msg.scanStride) {
+            if(token!==generation)return;
+            if(start<msg.noiseStop && start+n>msg.noiseStart || start<bgRange[1] && start+n>bgRange[0])continue;
+            if(wasm.prepare(start,n,msg.noiseStart,msg.noiseStop,+msg.receiver)<0)continue;
+            const candidate=await bank({...msg,scan:false},n,start,token,'time scan');
+            if(!candidate)return;scan.push(start,candidate.best[3],...candidate.best.slice(0,3));
+            if(!winner || candidate.best[3]>winner.best[3])winner=candidate;
+          }
+          if(!winner)throw Error('No intact independent trains in the scan interval.');
+          winner.scanResults=Float32Array.from(scan);results.push(winner);send('match',{result:winner});continue;
+        }
         let result = await bank(
           msg,
           n,

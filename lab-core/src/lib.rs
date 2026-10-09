@@ -4,6 +4,7 @@ use std::cell::RefCell;
 use std::f64::consts::PI;
 const C: f64 = 299_792_458.0;
 mod fft_search;
+mod radial_search;
 #[derive(Clone, Copy, Default)]
 struct Z {
     r: f64,
@@ -154,6 +155,7 @@ struct Engine {
     scan_peaks: Vec<f32>,
     scan_theta: Vec<usize>,
     fast: Option<fft_search::Fast>,
+    radial: Option<radial_search::Radial>,
 }
 impl Engine {
     fn residual(&self, k: usize) -> Vec<Z> {
@@ -210,6 +212,10 @@ impl Engine {
         };
     }
     fn theta(&self, index: usize) -> (f64, f64, f64) {
+        if let Some(bank) = &self.radial {
+            let [r, v, g] = bank.theta(index);
+            return (r, v, g);
+        }
         if let Some(fast) = &self.fast {
             let [x, y, v] = fast.cells[index].theta;
             return (x, y, v);
@@ -223,6 +229,9 @@ impl Engine {
         )
     }
     fn q(&self, index: usize) -> Vec<Z> {
+        if let Some(bank) = &self.radial {
+            return radial_search::values(self, bank.theta(index));
+        }
         let (x, y, v) = self.theta(index);
         template(
             self.n,
@@ -328,6 +337,7 @@ pub unsafe extern "C" fn load(
             scan_peaks: vec![],
             scan_theta: vec![],
             fast: None,
+            radial: None,
         })
     });
 }
@@ -515,6 +525,7 @@ pub extern "C" fn grid(
         }
         a.axes = [axis(xlo, xhi, nx), axis(ylo, yhi, ny), axis(vlo, vhi, nv)];
         a.fast = None;
+        a.radial = None;
         a.scores = vec![f32::NAN; nx * ny * nv];
         a.signs = vec![0.; nx * ny * nv];
         a.best_score = -1.;
@@ -708,6 +719,7 @@ pub extern "C" fn auto_begin(
         else {
             return -1;
         };
+        a.radial = None;
         a.fast = Some(fast);
         a.best = 0;
         a.best_score = -1.;
@@ -880,5 +892,94 @@ pub extern "C" fn train_values() -> usize {
             .flat_map(|z| [z.r as f32, z.i as f32])
             .collect();
         a.pulses
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn radial_begin(
+    rlo: f64,
+    rhi: f64,
+    vlo: f64,
+    vhi: f64,
+    alo: f64,
+    ahi: f64,
+    loss: f64,
+    cap: usize,
+) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let Some(bank) =
+            radial_search::Radial::new(a, [[rlo, rhi], [vlo, vhi], [alo, ahi]], loss, cap)
+        else {
+            return -1;
+        };
+        let groups = bank.groups.len();
+        let len = bank.len();
+        a.radial = Some(bank);
+        a.fast = None;
+        a.scores = vec![f32::NAN; len];
+        a.signs = vec![0.; len];
+        a.best_score = -1.;
+        a.best = 0;
+        groups as isize
+    })
+}
+#[no_mangle]
+pub extern "C" fn radial_info() -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let b = a.radial.as_ref().unwrap();
+        a.out = vec![
+            b.axes[0].len() as f32,
+            b.axes[1].len() as f32,
+            b.axes[2].len() as f32,
+            b.nf as f32,
+            b.ns as f32,
+            b.groups.len() as f32,
+            b.epsilon as f32,
+            b.bin_loss as f32,
+        ];
+        a.out.len()
+    })
+}
+#[no_mangle]
+pub extern "C" fn radial_batch(first: usize, count: usize) -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let stop = (first + count).min(a.radial.as_ref().unwrap().groups.len());
+        for i in first..stop {
+            radial_search::search_group(a, i);
+        }
+        stop
+    })
+}
+#[no_mangle]
+pub extern "C" fn radial_refine(count: usize) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        radial_search::refine(a, count);
+        if a.best_score < 0. {
+            -1
+        } else {
+            a.best as isize
+        }
+    })
+}
+#[no_mangle]
+pub extern "C" fn radial_template(r: f64, v: f64, g: f64, pulses: usize, receiver: usize) -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        a.pulses = pulses;
+        a.receiver = receiver != 0;
+        a.out = radial_search::values(a, [r, v, g])
+            .into_iter()
+            .flat_map(|z| [z.r as f32, z.i as f32])
+            .collect();
+        a.out.len()
     })
 }

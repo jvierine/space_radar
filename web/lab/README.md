@@ -59,7 +59,7 @@ Prepared data and QA products are ignored by Git; raw captures are not bundled.
 
 ## Matched filter
 
-The exact retarded Eq. 25 phase is
+The direct geometry reference uses the exact retarded Eq. 25 phase
 `2π[-f0 τ − S u τ + S τ²/2]`. Global time within a train uses actual sampled
 positions with ADC/idle gaps. The echo voltage amplitude is proportional to
 `1/R_ret²`, assuming constant scattering strength. Initial radar coordinates
@@ -89,9 +89,9 @@ mirroring `(x0,v)` to `(-x0,-v)` preserves monostatic range history.
 
 The time scan tests valid starts in a configurable interval and stride,
 excluding the mean and noise-reference intervals. A scan is limited to 512
-starts and a bank to 150000 templates; use a coarse grid/stride and then refine.
+starts and the direct geometry bank to 150000 templates; use a coarse grid/stride and then refine.
 After a scan, maps and the fitted trace refer to its highest-scoring start.
-Comparison searches show all five pulse counts and display the best score's
+Direct comparison searches show all five pulse counts and display the best score's
 maps; changing numerical settings invalidates previous maps.
 
 ## Validation and provenance
@@ -112,67 +112,86 @@ Platform references: [Rust wasm32 target](https://doc.rust-lang.org/rustc/platfo
 [WebGL texture upload](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/texImage2D).
 
 All three maps label the gold coherent-integration interval. The best-fit
-voltage is followed by the continuous geometric slant range
-`R(t) = sqrt((v*t-x0)^2 + y0^2)` over the analyzed train. This is inferred
-from the fitted trajectory, not an independently measured range.
+voltage is followed by the inferred range over the analyzed train: the
+quadratic polynomial in radial mode, or `sqrt((v*t-x0)^2+y0^2)` in the direct
+geometry reference. Neither is an independently measured range.
 The complex residual (background-subtracted measurement minus the fitted
 complex template, both Re and Im) appears immediately below the voltage fit.
 
 The measurement zoom slider starts at the full recording and zooms around the
 coherent train midpoint; selecting another train recenters an active zoom.
 Manual bounds and other view buttons retain custom views. Matched-filter maps
-always show the complete configured search grid and mark the global best fit
-with a cross; colour-scale maxima equal the actual matched-filter peak.
+always show the complete configured search grid and mark its global peak
+with a cross; radial FFT screening peaks and directly verified fits are
+labeled separately. Colour maxima equal the actual plotted grid peak.
 The yellow integration window is draggable on all three measurement maps.
 Its pulse count stays fixed and trains stay within one frame. Releasing a
 moved train repeats an existing search; otherwise it selects the train.
 
-## Coherent correction-grid FFT search (Memo 8)
+## Explicit radial FFT search (Memo 9)
 
-The automatic mode is intended for **multi-chirp** integration. It uses
-midpoint coordinates `R = range`, `U = radial velocity`, and `G = range
-acceleration`. For each velocity branch,
-`v = ±sqrt(U² + R*G)`, `x0 = v*t_mid - R*U/v`, and
-`y0 = sqrt(G*R³)/abs(v)`. Original human-supplied x0/y0/v bounds remain the
-constraints. A separate static template handles v=0. One-chirp comparison
-retains the existing direct reference; its ordinary Fourier spectrum is
-already available in the measurement plots.
+Automatic mode searches independent **midpoint r0, v0, a0 bounds**. The model
+is `r(t)=r0+v0*h+0.5*a0*h²`, with `h=t-t_mid`. r0 is one-way delay range;
+v0 is signed radial velocity (positive receding); a0 is radial acceleration
+in m/s². Its carrier Doppler chirp rate is approximately `-2*f0*a0/c` Hz/s.
+The polynomial is a local approximation, with cubic and higher range terms
+omitted. It is not the geometry reference's Cartesian speed/acceleration.
+The radial template is phase-only with a complex fitted gain; the direct
+geometry template retains its `1/R_ret²` envelope. Optional HPFs affect
+radial candidate verification, while FFT screening is phase-only.
 
-The exact retarded phase is separated into a constant, a fast/slow frequency
-plane, and its nonlinear remainder. Similar correction curves share a
-zero-padded 2D FFT over fast samples and chirp index. There are no fabricated
-samples in chirp gaps and no independent fitted phase per chirp. The fast
-frequency mixes range and Doppler; physical slow-frequency aliases are
-checked during refinement. Both stored-I/Q orientations remain supported.
+As in [hard_target](https://github.com/jvierine/hard_target/blob/main/src/hardtarget/analysis/gmf/gmf_cpu_numpy.py),
+loop through acceleration corrections, then FFT to search velocity. FMCW adds
+range beat and a mixed fast/slow-time correction that depends on velocity.
+The implementation shares corrections across bounded velocity groups and
+computes a sparse 2D FFT: each chirp's fast FFT, then only the requested fast
+frequency columns' slow FFTs. Actual measured sample clocks are used without
+inventing observations during idle gaps. Both I/Q orientations and all slow
+frequency aliases within the supplied velocity bounds are searched.
 
-FFT energy peaks propose extra physical candidates. The quiet-referenced
-statistic, projection points, and fitted waveform are evaluated using the
-full physical template at every accepted representative and every refined
-candidate. This screening/refinement is approximate and does not guarantee
-the global continuous maximum. The maps take MAX over evaluated physical
-points binned to the displayed axes; gray map pixels have no evaluation.
-They do not fill a physical bounding rectangle with a single point's score.
+Acceleration grid spacing and velocity-sharing widths use analytic global
+bounds on derivatives of the polynomial phase remainder. The requested loss
+allowance sets `epsilon=acos(sqrt(1-loss))` separately for nearest-acceleration
+mismatch and correction sharing. These are separate stagewise allowances;
+FFT-bin rounding, range/velocity sampling, and polynomial truncation add
+errors. It is not a guarantee of total energy loss or global recovery.
+Range and velocity axes have padded FFT-derived spacing; all axes include
+the original bounds and support singleton intervals. Signed a0 is allowed.
+Eight-chirp default bounds r0=[0.05,0.7] m, v0=[-400,400] m/s and a0=[0,1e6]
+m/s² produce 73×678×37 radial nodes with 259 shared correction FFTs at 5%.
+A 16-million-node cap reports an error instead of shrinking the bounds.
 
-Grid spacing comes from sampled phase changes/derivatives at feasible local
-nodes, with a safety factor. **Estimated cell phase loss is not a certified
-worst-case loss.** Correction sharing has a separate tolerance; FFT bins and
-finite refinement add approximations. Full bounds close to the radar can
-still exceed the 150,000-cell cap, particularly for 8/16 chirps. The worker
-reports failure and does not return an incomplete bank or silently shrink
-bounds. Narrower physically justified bounds can be much cheaper.
+Every grid node with positive range throughout the train gets an approximate
+FFT matched-energy/quiet-energy ratio. The same correction and bins are
+applied to each of the up to 24 independent quiet-reference trains. Strongest
+128 candidates are checked by direct inner products with the actual quadratic
+template in both orientations. The reported fitted voltage and score are
+directly verified; this candidate check does not guarantee the continuous
+maximum. Maps are complete MAX projections v0×r0 (over a0) and v0×a0 (over r0).
+Crosses and colour maxima refer to the actual FFT grid peak, which is labeled
+separately from the verified fit and may be a different node.
 
-Validate the shipped binary and benchmark 4/8/16-chirp synthetic recovery:
+The radial mode defaults to eight chirps and compares 2/4/8/16 chirps. The
+one-chirp spectrum is already provided above; one-chirp matched searches
+remain available only in the existing direct geometry reference. Switching
+methods preserves each method's own bounds. Radial time scans apply the same
+bank independently to every valid start and show the best verified candidate;
+use a coarse start stride for broad intervals.
+
+Validate with:
 
 ```sh
-conda run --no-capture-output -n base python tools/validate_fft_search.py
+conda run --no-capture-output -n base python tools/validate_radial_search.py
 ```
 
-The comparison uses identical measurements and bounds, against a 31×11×41
-physical reference grid; these are different discretizations. Timings include
-automatic planning, FFT search, and physical refinement, and are specific to
-the machine. Exact returned scores, fitted complex waveforms, mirrored geometry,
-and reversed stored I/Q are verified independently. Results and the Wasm hash
-are stored in `web/lab/qa/fft_search_validation.h5` (ignored by Git).
-Implementation: `lab-core/src/fft_search.rs`; benchmark driver:
-`tools/benchmark_fft.mjs`; memo: Overleaf project `6ac509d9d83f597ac920e7de`,
-`fmcw_memo_008.tex`.
+This exercises the compiled Wasm default 8-chirp domain, reversed I/Q with
+aliased radial velocities, and focused 16-chirp searches. NumPy independently
+checks the full quadratic phase, selected quiet controls, exact best-score
+ratio and fitted voltage. Synthetic data, projections and the binary hash are
+saved in `web/lab/qa/radial_search_validation.h5`, ignored by Git. It does not
+establish a measured detection or unique trajectory. Timings are specific to
+the machine and browser. Source: `lab-core/src/radial_search.rs`; harness:
+`tools/benchmark_radial.mjs`; memo: `fmcw_memo_009.tex` in Overleaf project
+`6ac509d9d83f597ac920e7de`. The older geometry-coordinate FFT implementation
+and its regression harness remain in source but are not the viewer's radial
+search path.

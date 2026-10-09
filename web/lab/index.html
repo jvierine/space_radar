@@ -205,24 +205,20 @@
           <h2>Match the trajectory</h2>
           <span class="badge">Eq. 25 · complex I/Q · fixed quiet mean</span>
         </div>
-        <p class="note">
-          Radar at (x₀, y₀), projectile at (v t, 0). x₀ is along-track offset at
-          the start of this train; y₀ is perpendicular distance. Slant range is
-          √((v t − x₀)² + y₀²). Each train stays within one frame.
-        </p>
+        <p class="note" id="modelNote"></p>
         <div class="fields">
           <label
             >Search method<select id="algorithm">
-              <option value="fft" selected>Correction grid + FFT (automatic)</option>
+              <option value="fft" selected>r₀ / v₀ / a₀ + FFT (automatic)</option>
               <option value="direct">Direct physical grid (reference)</option>
             </select></label>
-          <label>Estimated cell phase loss (%)<input id="phaseLoss" type="number" min="0.1" max="50" step="0.5" value="5" /></label>
+          <label>Correction phase tolerance (%)<input id="phaseLoss" type="number" min="0.1" max="50" step="0.5" value="5" /></label>
           <label
             >Coherent pulses<select id="pulses">
               <option>1</option>
               <option>2</option>
-              <option selected>4</option>
-              <option>8</option>
+              <option>4</option>
+              <option selected>8</option>
               <option>16</option>
             </select></label
           ><label
@@ -241,23 +237,22 @@
           </thead>
           <tbody>
             <tr>
-              <th>x₀ (m)</th>
+              <th id="axisR">r₀ (m)</th>
               <td>
-                <input id="xMin" type="number" value="-0.6" step="0.01" />
+                <input id="xMin" type="number" value="0.05" step="0.01" />
               </td>
-              <td><input id="xMax" type="number" value="0.6" step="0.01" /></td>
+              <td><input id="xMax" type="number" value="0.7" step="0.01" /></td>
               <td>
                 <input id="xN" type="number" value="31" min="1" max="201" />
               </td>
             </tr>
             <tr>
-              <th>y₀ (m)</th>
+              <th id="axisA">a₀ (m/s²)</th>
               <td>
                 <input
                   id="yMin"
                   type="number"
-                  value="0.05"
-                  min="0.001"
+                  value="0"
                   step="0.01"
                 />
               </td>
@@ -265,8 +260,7 @@
                 <input
                   id="yMax"
                   type="number"
-                  value="0.3"
-                  min="0.001"
+                  value="1000000"
                   step="0.01"
                 />
               </td>
@@ -275,16 +269,16 @@
               </td>
             </tr>
             <tr>
-              <th>v (m/s)</th>
-              <td><input id="vMin" type="number" value="200" step="10" /></td>
-              <td><input id="vMax" type="number" value="500" step="10" /></td>
+              <th id="axisV">v₀ (m/s)</th>
+              <td><input id="vMin" type="number" value="-400" step="10" /></td>
+              <td><input id="vMax" type="number" value="400" step="10" /></td>
               <td>
                 <input id="vN" type="number" value="41" min="1" max="301" />
               </td>
             </tr>
           </tbody>
         </table>
-        <p id="gridNote" class="note">Enter the physical bounds. For coherent trains, automatic mode adapts midpoint range, radial velocity, and curvature to the estimated phase tolerance; grid-point counts apply only to the direct reference search. FFT candidates are verified with the full physical template. The phase tolerance is a numerical estimate, not a guaranteed global bound. One chirp uses the existing direct reference.</p>
+        <p id="gridNote" class="note">Enter r₀, v₀ and a₀ bounds. Automatic spacing uses the coherent duration and a phase tolerance; FFT bins search range and radial velocity for each acceleration correction. The radial model is a phase-only quadratic approximation, not the full straight-line trajectory. Grid-point counts below show the generated axes.</p>
         <div class="actions">
           <button id="search" class="primary">Search selected train</button
           ><button id="compare">Compare 1 / 2 / 4 / 8 / 16</button
@@ -329,20 +323,15 @@
         </p>
         <div class="two">
           <div>
-            <h3>v × x₀ · maximum over y₀</h3>
+            <h3 id="mapRTitle">v₀ × r₀ · maximum over a₀</h3>
             <div id="vxPlot" class="heatmap compact"></div>
           </div>
           <div>
-            <h3>v × y₀ · maximum over x₀</h3>
+            <h3 id="mapATitle">v₀ × a₀ · maximum over r₀</h3>
             <div id="vyPlot" class="heatmap compact"></div>
           </div>
         </div>
-        <p class="note">
-          Both maps show the full configured search bounds. Automatic mode shows MAX projections of the evaluated physical points (gray pixels are unevaluated); the strongest FFT candidates receive physical refinement. Crosses mark the
-          global best fit. Both maps also maximize over stored-I/Q orientation.
-          Mirroring (x₀, v) → (−x₀, −v) gives the same monostatic range history.
-          The bank peak is a candidate fit, not an identified projectile.
-        </p>
+        <p class="note" id="mapNote">MAX projections of the complete r₀ / v₀ / a₀ FFT grid, including both I/Q orientations. Gray cells have nonpositive range over the train. Crosses mark the FFT grid peak; the strongest candidates are checked with the exact quadratic template for the reported fit. FFT-bin rounding and correction sharing make the grid scores approximate. A bank peak alone does not identify a projectile.</p>
         <div class="lineplot" id="fitPlot"></div>
         <div class="lineplot" id="residualPlot"></div>
         <div class="lineplot" id="rangePlot"></div>
@@ -356,7 +345,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009midpoint1"></script>
-    <script type="module" src="beam-ui.mjs?v=20261009beam2"></script>
+    <script type="module" src="app.mjs?v=20261009radial1"></script>
+    <script type="module" src="beam-ui.mjs?v=20261009radial1"></script>
   </body>
 </html>

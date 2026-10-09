@@ -1,7 +1,7 @@
 import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009k";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009midpoint1", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009radial1", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -15,7 +15,7 @@ let meta,
   clockBase,
   zoomTimer,
   centeredZoom = true;
-const state = { start: 0, stop: 6250, chirp: 625, pulses: 4, rx: 0 };
+const state = { start: 0, stop: 6250, chirp: 625, pulses: 8, rx: 0 };
 function status(text, error = false) {
   $("status").textContent = text;
   $("status").classList.toggle("error", error);
@@ -217,6 +217,7 @@ function customView() {
 function invalidate() {
   window.dispatchEvent(new Event("fmcw-invalidated"));
   const hadResult = !!result;
+  if($("algorithm").value==='fft') for(const id of ['xN','yN','vN']) $(id).value='';
   result = undefined;
   $("progress").value = 0;
   vx.root.style.display = "none";
@@ -345,8 +346,8 @@ function grid() {
       ($("algorithm").value === "direct" && (!Number.isInteger(g[a + "N"]) || g[a + "N"] < 1))
     )
       throw Error("Invalid trajectory grid.");
-  if (g.yMin <= 0 || Math.max(Math.abs(g.vMin), Math.abs(g.vMax)) > 100000)
-    throw Error("Use positive perpendicular distance and |v| ≤ 100 km/s.");
+  if (($("algorithm").value === "fft" ? g.xMin <= 0 : g.yMin <= 0) || Math.max(Math.abs(g.vMin), Math.abs(g.vMax)) > 100000)
+    throw Error("Use positive range (radial FFT) or y₀ (direct geometry), and |v| ≤ 100 km/s.");
   const cells = g.xN * g.yN * g.vN;
   if ($("algorithm").value === "direct" && cells > 150000)
     throw Error(
@@ -406,7 +407,7 @@ function run(compare = false, timeScan = false) {
     compareResults = [];
     $("compareResults").innerHTML = "";
     $("progress").value = 0;
-    status(job.algorithm === "fft" ? "Building correction cells from the physical bounds…" : `Searching ${g.xN * g.yN * g.vN} trajectory templates…`);
+    status(job.algorithm === "fft" ? "Building the explicit r₀ / v₀ / a₀ grid…" : `Searching ${g.xN * g.yN * g.vN} trajectory templates…`);
     worker.postMessage(job);
   } catch (e) {
     status(e.message, true);
@@ -428,9 +429,9 @@ function showMatch(r) {
   vy.root.style.display = "block";
   maps.forEach((m) => m.overlay({ bands: bands() }));
   const g = r.grid,
-    nv = r.cells ? Math.max(1,Math.min(48,Math.ceil(Math.sqrt(r.cube.length)))) : g.vN,
-    nx = r.cells ? nv : g.xN,
-    ny = r.cells ? nv : g.yN,
+    nv = r.radialSpec ? r.radialSpec[2] : r.cells ? Math.max(1,Math.min(48,Math.ceil(Math.sqrt(r.cube.length)))) : g.vN,
+    nx = r.radialSpec ? r.radialSpec[0] : r.cells ? nv : g.xN,
+    ny = r.radialSpec ? r.radialSpec[1] : r.cells ? nv : g.yN,
     a = new Float32Array(nx * nv).fill(-Infinity),
     b = new Float32Array(ny * nv).fill(-Infinity);
   if (r.cells) {
@@ -450,7 +451,10 @@ function showMatch(r) {
         if (score > a[ix * nv + iv]) a[ix * nv + iv] = score;
         if (score > b[iy * nv + iv]) b[iy * nv + iv] = score;
       }
-  const peak = db(r.best[3]),
+  let gridPeakIndex=0, gridPeak=-Infinity;
+  for(let i=0;i<r.cube.length;i++) if(r.cube[i]>gridPeak){gridPeak=r.cube[i];gridPeakIndex=i;}
+  const markerPoint=r.radialSpec ? [g.xMin+(g.xMax-g.xMin)*Math.floor(gridPeakIndex/(ny*nv))/(nx-1 || 1),g.yMin+(g.yMax-g.yMin)*(Math.floor(gridPeakIndex/nv)%ny)/(ny-1 || 1),g.vMin+(g.vMax-g.vMin)*(gridPeakIndex%nv)/(nv-1 || 1)] : [r.best[0],r.best[1],r.best[2]];
+  const peak = db(r.radialSpec ? gridPeak : r.best[3]),
     low = Math.min(0, peak - 35),
     high = peak;
   const opts = {
@@ -461,7 +465,7 @@ function showMatch(r) {
     topLabel: `Peak matched-filter value = ${peak.toFixed(2)} dB`,
     colorDecimals: 2,
     kind: 1,
-    xLabel: "Along-track velocity v (m/s)",
+    xLabel: r.radialSpec ? "Radial velocity v₀ (m/s; positive receding)" : "Along-track velocity v (m/s)",
     xFormat: (x) => x.toFixed(0),
     colorLabel: "Matched energy / quiet noise (dB)",
   };
@@ -469,14 +473,14 @@ function showMatch(r) {
     ...opts,
     y0: g.xMin,
     y1: g.xMax === g.xMin ? g.xMax + 0.01 : g.xMax,
-    yLabel: "Along-track offset x₀ (m)",
-    yFormat: (x) => x.toFixed(2),
+    yLabel: r.radialSpec ? "Midpoint range r₀ (m)" : "Along-track offset x₀ (m)",
+    yFormat: (x) => r.radialSpec ? x.toPrecision(3) : x.toFixed(2),
     marker: {
       column: Math.round(
-        ((r.best[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
+        ((markerPoint[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
       ),
       row: Math.round(
-        ((r.best[0] - g.xMin) / (g.xMax - g.xMin || 1)) * (nx - 1),
+        ((markerPoint[0] - g.xMin) / (g.xMax - g.xMin || 1)) * (nx - 1),
       ),
     },
   });
@@ -484,22 +488,23 @@ function showMatch(r) {
     ...opts,
     y0: g.yMin,
     y1: g.yMax === g.yMin ? g.yMax + 0.01 : g.yMax,
-    yLabel: "Perpendicular distance y₀ (m)",
-    yFormat: (x) => x.toFixed(2),
+    yLabel: r.radialSpec ? "Radial acceleration a₀ (m/s²)" : "Perpendicular distance y₀ (m)",
+    yFormat: (x) => r.radialSpec ? x.toPrecision(3) : x.toFixed(2),
     marker: {
       column: Math.round(
-        ((r.best[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
+        ((markerPoint[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
       ),
       row: Math.round(
-        ((r.best[1] - g.yMin) / (g.yMax - g.yMin || 1)) * (ny - 1),
+        ((markerPoint[1] - g.yMin) / (g.yMax - g.yMin || 1)) * (ny - 1),
       ),
     },
   });
   const [x, y, v, , , noiseCount] = r.best;
   const overlap =
     r.start < num("bgStop") && r.start + r.pulses > num("bgStart");
+  if(r.radialSpec) { $("xN").value=nx; $("yN").value=ny; $("vN").value=nv; }
   $("matchSummary").textContent =
-    `${r.pulses} pulses · chirps ${r.start}–${r.start + r.pulses - 1} · peak ${peak.toFixed(2)} dB · x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s · ${noiseCount} noise-reference trains · ${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)} µs sampled / ${((r.pulses - 1) * r.period * 1e6 + (meta.samples / meta.parameters.fs) * 1e6).toFixed(2)} µs elapsed · ${r.seconds.toFixed(2)} s${r.automatic ? ` · ${r.automatic[0]} automatic cells · FFT ${r.automatic[2]} × ${r.automatic[3]} · ${r.automatic[6]} shared FFT corrections · estimated cell phase loss ${r.loss}%` : " · direct grid"}${overlap ? " · selected train overlaps the mean-estimation interval" : ""}`;
+    `${r.pulses} pulses · chirps ${r.start}–${r.start + r.pulses - 1} · verified peak ${db(r.best[3]).toFixed(2)} dB · ${r.radialSpec ? `r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s² · FFT grid peak ${peak.toFixed(2)} dB` : `x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${noiseCount} noise-reference trains · ${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)} µs sampled / ${((r.pulses - 1) * r.period * 1e6 + (meta.samples / meta.parameters.fs) * 1e6).toFixed(2)} µs elapsed · ${r.seconds.toFixed(2)} s${r.radialSpec ? ` · grid ${nx} × ${nv} × ${ny} (r₀ × v₀ × a₀) · ${r.radialSpec[5]} correction FFTs · FFT ${r.radialSpec[3]} × ${r.radialSpec[4]}` : r.automatic ? ` · ${r.automatic[0]} automatic cells · FFT ${r.automatic[2]} × ${r.automatic[3]} · ${r.automatic[6]} shared FFT corrections · estimated cell phase loss ${r.loss}%` : " · direct grid"}${overlap ? " · selected train overlaps the mean-estimation interval" : ""}`;
   const xx = [],
     obs = [],
     model = [],
@@ -568,7 +573,7 @@ function showMatch(r) {
     (_, i) => xx[0] + ((xx.at(-1) - xx[0]) * i) / 300,
   );
   const ranges = Float64Array.from(rangeTime, (t) =>
-    Math.hypot(v * t * 1e-6 - x, y),
+    r.radialSpec ? x+y*(t*1e-6-r.midpoint)+0.5*v*(t*1e-6-r.midpoint)**2 : Math.hypot(v * t * 1e-6 - x, y),
   );
   const minRange = Math.min(...ranges),
     maxRange = Math.max(...ranges);
@@ -607,7 +612,7 @@ function showMatch(r) {
     scan.set(
       [
         {
-          name: "Time scan: maximum over x₀, y₀, v and I/Q orientation",
+          name: r.radialSpec ? "Time scan: verified radial FFT candidates" : "Time scan: maximum over x₀, y₀, v and I/Q orientation",
           color: "#57d8c0",
           x: starts,
           y: ys,
@@ -628,8 +633,9 @@ function showMatch(r) {
   }
 }
 function comparison(results) {
+  const radial=!!results[0].radialSpec;
   $("compareResults").innerHTML =
-    "<table><thead><tr><th>Pulses</th><th>Sampled µs</th><th>Peak dB</th><th>x₀ (m)</th><th>y₀ (m)</th><th>v (m/s)</th></tr></thead><tbody>" +
+    `<table><thead><tr><th>Pulses</th><th>Sampled µs</th><th>Verified peak dB</th><th>${radial ? "r₀ (m)" : "x₀ (m)"}</th><th>${radial ? "v₀ (m/s)" : "y₀ (m)"}</th><th>${radial ? "a₀ (m/s²)" : "v (m/s)"}</th></tr></thead><tbody>` +
     results
       .map(
         (r) =>
@@ -783,7 +789,26 @@ for (const id of [
   "phaseLoss",
 ])
   $(id).addEventListener("change", invalidate);
-$("algorithm").onchange = () => { invalidate(); setBusy(false); };
+const savedBounds={fft:[.05,.7,0,1000000,-400,400],direct:[-.6,.6,.05,.3,200,500]};
+let activeMethod='fft';
+function methodUI() {
+ const radial=$("algorithm").value==='fft';
+ ['xN','yN','vN'].forEach((id,i)=>$(id).value=radial?'':[31,11,41][i]);
+ $("axisR").textContent=radial?'r₀ (m)':'x₀ (m)';$("axisA").textContent=radial?'a₀ (m/s²)':'y₀ (m)';$("axisV").textContent=radial?'v₀ (m/s)':'v (m/s)';
+ $("yMin").min=radial?'':'.001';$("yMax").min=radial?'':'.001';$("yMin").step=$("yMax").step=radial?'1000':'.01';
+ $("mapRTitle").textContent=radial?'v₀ × r₀ · maximum over a₀':'v × x₀ · maximum over y₀';$("mapATitle").textContent=radial?'v₀ × a₀ · maximum over r₀':'v × y₀ · maximum over x₀';
+ $("compare").textContent=radial?'Compare 2 / 4 / 8 / 16':'Compare 1 / 2 / 4 / 8 / 16';
+ $("pulses").options[0].disabled=radial;if(radial && num('pulses')===1) $("pulses").value=8;
+ $("modelNote").textContent=radial?'Polynomial radial range: r(t) = r₀ + v₀ h + ½a₀h². t₀ is the sampled train midpoint; h = t − t₀. Positive v₀ is receding. a₀ is radial acceleration (m/s²); the carrier Doppler chirp rate is approximately −2f₀a₀/c Hz/s. These are independent search coordinates.':'Radar at (x₀, y₀), projectile at (v t, 0). x₀ is along-track offset at this train’s start; y₀ is perpendicular distance. R(t) = √((v t − x₀)² + y₀²).';
+ $("gridNote").textContent=radial?'Enter r₀, v₀ and a₀ bounds. Acceleration spacing and shared velocity corrections follow a polynomial phase bound over the full coherent train. Range/velocity spacing comes from padded FFT bins. The grid scores approximate the phase-only quadratic matched filter; strongest candidates are verified directly. This model omits cubic and higher range terms. Optional HPFs apply to candidate verification; the FFT grid is phase-only.':'Enter x₀, y₀ and signed along-track velocity bounds and grid counts for the full retarded Eq. 25 reference search.';
+ $("mapNote").textContent=radial?'MAX projections of the complete r₀ / v₀ / a₀ FFT grid, including both I/Q orientations. Gray cells have nonpositive range over the train. Crosses mark the FFT grid peak. Strong candidates are checked with the exact quadratic template for the reported fit. FFT-bin rounding and correction sharing make grid scores approximate. A bank peak alone does not identify a projectile.':'MAX projections over the full configured geometry grid and both I/Q orientations. Crosses mark the global best fit. Mirroring (x₀,v) gives the same monostatic range history. A bank peak alone does not identify a projectile.';
+}
+$("algorithm").onchange = () => {
+ savedBounds[activeMethod]=['xMin','xMax','yMin','yMax','vMin','vMax'].map(num);activeMethod=$("algorithm").value;
+ ['xMin','xMax','yMin','yMax','vMin','vMax'].forEach((id,i)=>$(id).value=savedBounds[activeMethod][i]);
+ invalidate();methodUI();setBusy(false);
+};
+methodUI();
 try {
   setBusy(false);
   const response = await fetch("datasets/test63/metadata.json", {

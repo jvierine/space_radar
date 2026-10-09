@@ -10,7 +10,7 @@ section.innerHTML=`<h2>Four-antenna coherent beamforming</h2>
 document.getElementById('matchSettings').after(section);
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
 const map=new Heatmap('beamPlot');
-const worker=new Worker('beam-worker.mjs?v=20261009beam2',{type:'module'});
+const worker=new Worker('beam-worker.mjs?v=20261009radial1',{type:'module'});
 let current=null,mainBusy=false,beamBusy=false,id=0;
 const refresh=()=>{button.disabled=!current||mainBusy||beamBusy;steps.disabled=mainBusy||beamBusy;button.textContent=`Search ${(Number(steps.value)**3).toLocaleString()} phase combinations`;};
 steps.oninput=refresh;

@@ -17,13 +17,13 @@ onmessage=async({data:job})=>{
   if(meta.transport.length!==4)throw Error('This phase search requires four synchronized receivers.');
   postMessage({id:job.id,type:'progress',text:'Loading and verifying four synchronized receiver streams…'});
   const receivers=await Promise.all(meta.transport.map(channel));
-  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009beam2'),{})).instance.exports;
+  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009radial1'),{})).instance.exports;
   const p=meta.parameters;
   const ptr=engine.allocate(2*meta.samples);
   new Float32Array(engine.memory.buffer,ptr,2*meta.samples).fill(0);
   engine.load(ptr,1,meta.samples,meta.chirps_per_frame,p.fs,p.T_adc,match.period,p.f_start,p.freq_slope);
   engine.release(ptr,2*meta.samples);
-  engine.template_values(match.best[0],match.best[1],match.best[2],match.pulses,+match.receiver);
+  (match.model==='radial-quadratic' ? engine.radial_template : engine.template_values)(match.best[0],match.best[1],match.best[2],match.pulses,+match.receiver);
   const q=new Float32Array(engine.memory.buffer,engine.result_ptr(),engine.result_len()).slice();
   const projections=projectReceivers(receivers,q,{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start:match.start,pulses:match.pulses,bgStart:match.bgRange[0],bgStop:match.bgRange[1],noiseStart:match.noiseRange[0],noiseStop:match.noiseRange[1],conjugated:match.best[4]>0});
   const result=phaseSearch(projections.event,projections.noise,job.steps);
