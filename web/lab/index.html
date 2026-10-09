@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>FMCW laboratory · I/Q data browser</title>
-    <link rel="stylesheet" href="style.css?v=20261009b" />
+    <link rel="stylesheet" href="style.css?v=20261009d" />
   </head>
   <body>
     <header>
@@ -94,7 +94,8 @@
           <div class="actions">
             <button id="full">Full recording</button
             ><button id="frame">Selected frame</button
-            ><button id="around">Around selection</button>
+            ><button id="around">Around selection</button
+            ><button id="zoomBackground">Zoom to background</button>
           </div>
         </div>
         <div class="fields">
@@ -105,10 +106,10 @@
               value="0"
               min="0" /></label
           ><label
-            >View: stop (exclusive)<input
+            >View: last chirp (inclusive)<input
               id="viewStop"
               type="number"
-              value="6250"
+              value="6249"
               min="1" /></label
           ><button id="view">Set view</button
           ><label
@@ -138,10 +139,11 @@
           >
         </div>
         <p class="note">
-          Click a column to select its chirp. Gold marks the filter train; blue
-          marks the quiet mean; cyan marks the noise reference. Grey columns
-          have padding/nonfinite samples and are excluded from spectra and
-          filtering.
+          Drag the blue Background window on the spectrum to move it; drag its
+          edges to resize. The complex mean updates when you release. Click
+          elsewhere to select a chirp. Gold marks the filter train; blue marks
+          the quiet mean; cyan marks the noise reference. Grey columns have
+          padding/nonfinite samples and are excluded from spectra and filtering.
         </p>
         <h3>Raw stored voltage · undecoded</h3>
         <div id="rawPlot" class="heatmap"></div>
@@ -330,6 +332,6 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009b"></script>
+    <script type="module" src="app.mjs?v=20261009d"></script>
   </body>
 </html>

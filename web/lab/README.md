@@ -32,6 +32,9 @@ Prepared data and QA products are ignored by Git; raw captures are not bundled.
   with no FFT or matched decoding. Select its real or imaginary component.
 - The quiet interval is user-selected, not an automatically identified trigger.
   A complex mean is formed per fast-time sample over intact quiet chirps. The
+  Spectrum plot: drag the blue Background window to move it or its edges to
+  resize; release to recompute. Focus its buttons and use arrow keys (Shift
+  for ten chirps) for precise adjustment. The
   SAME mean is subtracted from all displayed and analyzed chirps.
 - FFTs are complex, Hann-windowed and zero-padded from 225 to 256 points for
   Test 63. Actual Fourier resolution is fs/225 = 55.56 kHz, while padded bins
@@ -43,7 +46,10 @@ Prepared data and QA products are ignored by Git; raw captures are not bundled.
   samples at 12.5 MS/s collect 18 µs. Idle is 5 µs. Ramp tail is not stored:
   default 0.37 µs is an assumption, giving a 25.37 µs chirp period. Default
   frame interval assumes continuous frames, 125 × 25.37 µs = 3.17125 ms.
-  Both are editable. Clock labels are reconstructed, and concatenated-index
+  Both are editable. Clock labels are Unix epoch seconds with an explicit
+  UTC assumption because the source timezone is unspecified. View bounds use
+  inclusive first/last chirps; Zoom to background shows the selected mean interval.
+  Clock labels are reconstructed, and concatenated-index
   plots omit any configured gaps. Coherent searches do not cross frames.
 - Packet padding is recorded globally without a per-sample mask. A run of
   at least eight exact complex zeros, or a nonfinite sample, flags a chirp.

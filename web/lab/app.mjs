@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009b";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009d";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009b", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009d", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -25,6 +25,7 @@ function setBusy(value) {
   ))
     el.disabled = value || !loaded;
   $("cancel").disabled = !value;
+  for (const map of maps) map.drawWindow();
 }
 function assertRange(a, b) {
   if (
@@ -41,11 +42,7 @@ function clock(chirp) {
     frame = Math.floor(k / meta.chirps_per_frame),
     within = k % meta.chirps_per_frame;
   const elapsed = frame * framePeriod + within * period + meta.parameters.T_adc;
-  const ms = clockBase + elapsed * 1000,
-    d = new Date(Math.floor(ms));
-  return `${d.toISOString().slice(11, 19)}.${Math.floor((ms % 1000) * 1000)
-    .toString()
-    .padStart(6, "0")}`;
+  return (clockBase / 1000 + elapsed).toFixed(6);
 }
 function bands() {
   return [
@@ -84,6 +81,21 @@ const iq = new LinePlot("iqPlot"),
   spectrum = new LinePlot("spectrumPlot"),
   fit = new LinePlot("fitPlot"),
   scan = new LinePlot("scanPlot", (k) => selectChirp(Math.round(k)));
+maps[2].enableWindow({
+  getRange: () => [num("bgStart"), num("bgStop")],
+  enabled: () => loaded && !busy,
+  limit: () => meta.total_chirps,
+  preview: (start, stop) => {
+    $("bgStart").value = start;
+    $("bgStop").value = stop;
+    maps.forEach((map) => map.overlay({ bands: bands() }));
+  },
+  commit: () => {
+    invalidate();
+    status("Updating the complex background mean…");
+    $("background").click();
+  },
+});
 function common() {
   return {
     x0: state.start,
@@ -92,7 +104,7 @@ function common() {
     y1: (meta.parameters.T_adc + (meta.samples - 1) / meta.parameters.fs) * 1e6,
     xFormat: (x) => Math.min(state.stop - 1, Math.round(x)).toString(),
     topFormat: (x) => clock(Math.min(state.stop - 1, Math.round(x))),
-    topLabel: "Wall clock (reconstructed; timezone unspecified)",
+    topLabel: "Unix epoch seconds (reconstructed; UTC assumed)",
     xLabel: "Concatenated chirp number (frame gaps omitted)",
     yLabel: "Fast time from chirp ramp start (µs)",
     bands: bands(),
@@ -129,7 +141,7 @@ function drawView() {
 }
 function view() {
   const a = num("viewStart"),
-    b = num("viewStop");
+    b = num("viewStop") + 1;
   assertRange(a, b);
   state.start = a;
   state.stop = b;
@@ -205,7 +217,7 @@ function trace(msg) {
       (_, j) => (meta.parameters.T_adc + j / meta.parameters.fs) * 1e6,
     ),
     offset = $("traceSub").checked ? 2 * n : 0;
-  const desc = `Global ${msg.chirp} · frame ${Math.floor(msg.chirp / meta.chirps_per_frame)}, chirp ${msg.chirp % meta.chirps_per_frame} · reconstructed clock ${clock(msg.chirp)}${msg.valid ? "" : " · FLAGGED PADDING: excluded from filters/spectra"}`;
+  const desc = `Global ${msg.chirp} · frame ${Math.floor(msg.chirp / meta.chirps_per_frame)}, chirp ${msg.chirp % meta.chirps_per_frame} · epoch seconds ${clock(msg.chirp)} (UTC assumed)${msg.valid ? "" : " · FLAGGED PADDING: excluded from filters/spectra"}`;
   $("chirpInfo").textContent = desc;
   iq.set(
     [
@@ -484,6 +496,7 @@ worker.onmessage = ({ data: m }) => {
       `${missing} / ${n} chirps flagged for zero runs ≥8 samples or nonfinite values. These are displayed in grey and excluded from noise estimates and searches. Original source reports ${meta.zero_padded_samples.toLocaleString()} padded samples across all receivers.`;
     $("bgNote").textContent =
       `Complex mean uses ${m.count} intact chirps from [${num("bgStart")}, ${num("bgStop")}). This same mean is removed from quiet and disturbed data.`;
+    if (!busy) status("Complex background mean updated; plots refreshed.");
     applyTiming();
     view();
     updateSelection();
@@ -562,18 +575,23 @@ $("pulses").onchange = () => {
 $("traceSub").onchange = updateSelection;
 $("full").onclick = safe(() => {
   $("viewStart").value = 0;
-  $("viewStop").value = meta.total_chirps;
+  $("viewStop").value = meta.total_chirps - 1;
   view();
 });
 $("frame").onclick = safe(() => {
   $("viewStart").value =
     Math.floor(state.chirp / meta.chirps_per_frame) * meta.chirps_per_frame;
-  $("viewStop").value = num("viewStart") + meta.chirps_per_frame;
+  $("viewStop").value = num("viewStart") + meta.chirps_per_frame - 1;
   view();
 });
 $("around").onclick = safe(() => {
   $("viewStart").value = Math.max(0, state.chirp - 125);
-  $("viewStop").value = Math.min(meta.total_chirps, state.chirp + 250);
+  $("viewStop").value = Math.min(meta.total_chirps - 1, state.chirp + 249);
+  view();
+});
+$("zoomBackground").onclick = safe(() => {
+  $("viewStart").value = num("bgStart");
+  $("viewStop").value = num("bgStop") - 1;
   view();
 });
 $("search").onclick = () => run();
@@ -605,7 +623,7 @@ try {
   clockBase = Date.parse(meta.recorded_clock + "Z");
   $("record").textContent =
     `Test 63 · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX`;
-  $("viewStop").value = meta.total_chirps;
+  $("viewStop").value = meta.total_chirps - 1;
   $("chirpSlider").max = meta.total_chirps - 1;
   $("framePeriod").value = (
     (meta.parameters.T_adc +

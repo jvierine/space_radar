@@ -90,6 +90,124 @@ export class Heatmap {
     };
     new ResizeObserver(() => this.draw()).observe(this.root);
   }
+  enableWindow(options) {
+    this.windowOptions = options;
+    const band = (this.windowBand = document.createElement("div"));
+    band.className = "background-window";
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "window-label";
+    label.textContent = "Background";
+    label.setAttribute("aria-label", "Move background window");
+    band.append(label);
+    for (const edge of ["start", "stop"]) {
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.className = `window-handle ${edge}`;
+      handle.setAttribute("aria-label", `Resize background ${edge}`);
+      handle.dataset.edge = edge;
+      band.append(handle);
+    }
+    this.root.append(band);
+    const at = (event) => {
+      const rect = this.pixels.getBoundingClientRect();
+      return (
+        this.config.x0 +
+        ((event.clientX - rect.left) / rect.width) *
+          (this.config.x1 - this.config.x0)
+      );
+    };
+    band.addEventListener("pointerdown", (event) => {
+      if (event.button !== 0 || !options.enabled()) return;
+      event.preventDefault();
+      const [start, stop] = options.getRange();
+      this.windowDrag = {
+        pointer: event.pointerId,
+        anchor: at(event),
+        start,
+        stop,
+        edge: event.target.dataset.edge,
+      };
+      band.setPointerCapture(event.pointerId);
+      band.classList.add("dragging");
+    });
+    band.addEventListener("pointermove", (event) => {
+      const drag = this.windowDrag;
+      if (!drag || drag.pointer !== event.pointerId) return;
+      const delta = Math.round(at(event) - drag.anchor);
+      let start = drag.start,
+        stop = drag.stop;
+      if (drag.edge === "start")
+        start = Math.max(0, Math.min(stop - 1, start + delta));
+      else if (drag.edge === "stop")
+        stop = Math.min(options.limit(), Math.max(start + 1, stop + delta));
+      else {
+        start = Math.max(
+          0,
+          Math.min(options.limit() - (stop - start), start + delta),
+        );
+        stop = start + drag.stop - drag.start;
+      }
+      options.preview(start, stop);
+    });
+    const finish = (event, cancelled = false) => {
+      const drag = this.windowDrag;
+      if (!drag || event.pointerId !== drag.pointer) return;
+      this.windowDrag = null;
+      band.classList.remove("dragging");
+      if (band.hasPointerCapture(event.pointerId))
+        band.releasePointerCapture(event.pointerId);
+      if (cancelled) options.preview(drag.start, drag.stop);
+      else options.commit();
+    };
+    band.addEventListener("pointerup", (event) => finish(event));
+    band.addEventListener("pointercancel", (event) => finish(event, true));
+    band.addEventListener("keydown", (event) => {
+      if (
+        !["ArrowLeft", "ArrowRight"].includes(event.key) ||
+        !options.enabled()
+      )
+        return;
+      event.preventDefault();
+      const delta =
+        (event.key === "ArrowLeft" ? -1 : 1) * (event.shiftKey ? 10 : 1);
+      let [start, stop] = options.getRange();
+      const edge = event.target.dataset.edge;
+      if (edge === "start")
+        start = Math.max(0, Math.min(stop - 1, start + delta));
+      else if (edge === "stop")
+        stop = Math.min(options.limit(), Math.max(start + 1, stop + delta));
+      else {
+        const width = stop - start;
+        start = Math.max(0, Math.min(options.limit() - width, start + delta));
+        stop = start + width;
+      }
+      options.preview(start, stop);
+      options.commit();
+    });
+  }
+  drawWindow() {
+    if (!this.windowBand || !this.config) return;
+    const [start, stop] = this.windowOptions.getRange();
+    const c = this.config,
+      rect = this.pixels.getBoundingClientRect();
+    const a = Math.max(start, c.x0),
+      b = Math.min(stop, c.x1);
+    this.windowBand.hidden = b <= a;
+    if (b <= a) return;
+    const width = this.root.clientWidth - 160;
+    Object.assign(this.windowBand.style, {
+      left: `${74 + ((a - c.x0) / (c.x1 - c.x0)) * width}px`,
+      top: "37px",
+      width: `${((b - a) / (c.x1 - c.x0)) * width}px`,
+      height: `${rect.height}px`,
+    });
+    this.windowBand.title = `Background chirps [${start}, ${stop}); drag to move, drag edges to resize`;
+    this.windowBand.querySelector(".start").hidden = start < c.x0;
+    this.windowBand.querySelector(".stop").hidden = stop > c.x1;
+    for (const button of this.windowBand.querySelectorAll("button"))
+      button.disabled = !this.windowOptions.enabled();
+  }
   set(values, width, height, config) {
     const gl = this.gl;
     if (
@@ -126,6 +244,7 @@ export class Heatmap {
   }
   draw() {
     if (!this.config) return;
+    this.drawWindow();
     const { clientWidth: W, clientHeight: H } = this.root;
     if (!W || !H) return;
     const gl = this.gl,
