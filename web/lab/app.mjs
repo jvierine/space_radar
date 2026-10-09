@@ -32,7 +32,7 @@ function setBusy(value) {
   $("phaseLoss").disabled = value || !loaded || $("algorithm").value !== "fft";
   for (const map of maps) map.drawWindow();
 }
-function assertRange(a, b) {
+function assertRange(a, b, label = "chirp") {
   if (
     !Number.isInteger(a) ||
     !Number.isInteger(b) ||
@@ -40,7 +40,7 @@ function assertRange(a, b) {
     b > meta.total_chirps ||
     a >= b
   )
-    throw Error("Enter a valid, nonempty chirp interval.");
+    throw Error(`Enter a valid, nonempty ${label} interval.`);
 }
 function clock(chirp) {
   const k = Math.round(chirp),
@@ -370,17 +370,12 @@ function run(compare = false, timeScan = false) {
   if (busy) return;
   try {
     applyTiming();
-    assertRange(num("bgStart"), num("bgStop"));
-    worker.postMessage({
-      type: "background",
-      start: num("bgStart"),
-      stop: num("bgStop"),
-    });
+    assertRange(num("bgStart"), num("bgStop"), "quiet-mean chirp");
     const g = grid();
     const loss = num("phaseLoss");
     if ($("algorithm").value === "fft" && (!Number.isFinite(loss) || loss <= 0 || loss > 50))
       throw Error("Choose a correction-phase loss greater than 0% and at most 50%.");
-    assertRange(num("noiseStart"), num("noiseStop"));
+    assertRange(num("noiseStart"), num("noiseStop"), "noise-reference chirp");
     const needed = compare ? 16 : num("pulses");
     if (
       state.chirp + needed >
@@ -408,7 +403,7 @@ function run(compare = false, timeScan = false) {
       scanStride: num("scanStride"),
     };
     if (timeScan) {
-      assertRange(job.scanStart, job.scanStop);
+      assertRange(job.scanStart, job.scanStop, "time-scan chirp");
       if (!Number.isInteger(job.scanStride) || job.scanStride < 1)
         throw Error("Start stride must be a positive integer.");
       if ((job.scanStop - job.scanStart) / job.scanStride > 512)
@@ -419,6 +414,13 @@ function run(compare = false, timeScan = false) {
     $("compareResults").innerHTML = "";
     $("progress").value = 0;
     status(job.algorithm === "fft" ? "Building the explicit r₀ / v₀ / a₀ grid…" : `Searching ${g.xN * g.yN * g.vN} trajectory templates…`);
+    // Queue the background only after validation: its asynchronous reply must
+    // not replace a rejected search's error with a successful-update message.
+    worker.postMessage({
+      type: "background",
+      start: num("bgStart"),
+      stop: num("bgStop"),
+    });
     worker.postMessage(job);
   } catch (e) {
     status(e.message, true);
