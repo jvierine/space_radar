@@ -1,6 +1,6 @@
 import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes15';
 import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009zeroaxes15';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009zeroaxes15";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010adaptive16";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
   worker = new Worker("worker.mjs?v=20261009zeroaxes15", { type: "module" });
@@ -485,6 +485,7 @@ function showMatch(r) {
     x1: g.vMax === g.vMin ? g.vMax + 1 : g.vMax,
     lo: low,
     hi: high,
+    autoColor: true,
     topLabel: `Peak matched-filter value = ${peak.toFixed(2)} dB`,
     colorDecimals: 2,
     kind: 1,

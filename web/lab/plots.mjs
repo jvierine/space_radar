@@ -1,3 +1,4 @@
+import {visibleColorRange} from './color-range.mjs?v=20261010adaptive16';
 import {drawMath,ensureMath} from './math-labels.mjs?v=20261009zeroaxes15';
 import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009zeroaxes15';
 const fg = "#20252b",
@@ -383,6 +384,7 @@ export class Heatmap {
   }
   draw() {
     if (!this.config) return;
+    if(this.config.autoColor)Object.assign(this.config,visibleColorRange(this.values,this.width,this.height,this.baseConfig,this.config));
     this.drawWindow();
     const { clientWidth: W, clientHeight: H } = this.root;
     if (!W || !H) return;
