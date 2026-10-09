@@ -1,4 +1,4 @@
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009gpu2';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009drag3';
 export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.

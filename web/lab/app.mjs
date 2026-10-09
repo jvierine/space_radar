@@ -1,8 +1,8 @@
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009gpu2';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009gpu2";
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009drag3';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009drag3";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009gpu2", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009drag3", { type: "module" });
 let meta,
   period,
   framePeriod,

@@ -1,4 +1,4 @@
-import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009gpu2';
+import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009drag3';
 const cache=new Map();
 async function channel(spec){
  if(cache.has(spec.sha256))return cache.get(spec.sha256);
@@ -17,7 +17,7 @@ onmessage=async({data:job})=>{
   if(meta.transport.length!==4)throw Error('This phase search requires four synchronized receivers.');
   postMessage({id:job.id,type:'progress',text:'Loading and verifying four synchronized receiver streams…'});
   const receivers=await Promise.all(meta.transport.map(channel));
-  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009gpu2'),{})).instance.exports;
+  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009drag3'),{})).instance.exports;
   const p=meta.parameters;
   const ptr=engine.allocate(2*meta.samples);
   new Float32Array(engine.memory.buffer,ptr,2*meta.samples).fill(0);

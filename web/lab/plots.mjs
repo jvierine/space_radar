@@ -1,5 +1,5 @@
-import {drawMath,ensureMath} from './math-labels.mjs?v=20261009gpu2';
-import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009gpu2';
+import {drawMath,ensureMath} from './math-labels.mjs?v=20261009drag3';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009drag3';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",
@@ -201,14 +201,14 @@ export class Heatmap {
     label.textContent = options.label ?? "Background";
     label.setAttribute(
       "aria-label",
-      options.moveLabel ?? "Move background window",
+      options.moveLabel ?? `Move ${options.label ?? "Background"} window`,
     );
     band.append(label);
     for (const edge of options.resizable === false ? [] : ["start", "stop"]) {
       const handle = document.createElement("button");
       handle.type = "button";
       handle.className = `window-handle ${edge}`;
-      handle.setAttribute("aria-label", `Resize background ${edge}`);
+      handle.setAttribute("aria-label", `Resize ${options.label ?? "Background"} ${edge}`);
       handle.dataset.edge = edge;
       band.append(handle);
     }
@@ -303,6 +303,12 @@ export class Heatmap {
   }
   drawWindow() {
     if (!this.windows || !this.config) return;
+    // Keep shorter windows reachable when a larger interval covers them.
+    const layers=[...this.windows].sort((a,b)=>{
+      const ar=a.options.getRange(),br=b.options.getRange();
+      return (br[1]-br[0])-(ar[1]-ar[0]);
+    });
+    layers.forEach(({band},rank)=>band.style.zIndex=String(rank+2));
     for (const { band, options } of this.windows) {
       const [start, stop] = options.getRange();
       const c = this.config,

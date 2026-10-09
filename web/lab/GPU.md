@@ -26,7 +26,7 @@ allocation, device-loss, timeout, or numerical failures discard the bank and
 restart it on CPU. Cancellation does not start a fallback search. Small banks
 use CPU automatically; CPU can also be selected explicitly.
 
-The purple analysis strip specifies first and last analyzed chirps (the stop
+The purple analysis window specifies first and last analyzed chirps (the stop
 control is exclusive). Every contained intact train start is searched, except
 quiet intervals and frame crossings. Each completed point immediately updates
 the trajectory maps, fit, phase maps and line plots. Receiver-pair angles are

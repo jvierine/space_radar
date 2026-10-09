@@ -5,7 +5,7 @@ import {prepareReceiverTrains} from '../web/lab/receiver-trains.mjs';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {pathToFileURL} from 'node:url';
-import {GpuRadial,Cancelled,bounded} from '../web/lab/gpu-radial.mjs?v=20261009gpu2';
+import {GpuRadial,Cancelled,bounded} from '../web/lab/gpu-radial.mjs?v=20261009drag3';
 import {runRadial,resetGpuBackend,checkGpuScores,importGpuScores} from '../web/lab/radial-backend.mjs';
 const {create,globals}=await import(pathToFileURL(process.env.WEBGPU_MODULE??'/tmp/fmcw-webgpu-test/node_modules/webgpu/index.js'));
 Object.assign(globalThis,globals);

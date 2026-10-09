@@ -1,5 +1,5 @@
-import {restoreControls} from './gui-state.mjs?v=20261009gpu2';
-import {Heatmap} from './plots.mjs?v=20261009gpu2';
+import {restoreControls} from './gui-state.mjs?v=20261009drag3';
+import {Heatmap} from './plots.mjs?v=20261009drag3';
 import {estimateRcs,diameterRoots} from './rcs.mjs?v=20261009rcs1';
 const section=document.createElement('section');
 section.className='card';
@@ -37,7 +37,7 @@ restoreControls(section);
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
 const pairs=[[1,2,3],[1,3,2],[2,3,1]];
 const maps=pairs.map(([x,y])=>new Heatmap(`beamPlot${x}${y}`));
-const worker=new Worker('beam-worker.mjs?v=20261009gpu2',{type:'module'});
+const worker=new Worker('beam-worker.mjs?v=20261009drag3',{type:'module'});
 let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null,pendingAutomatic=false;
 function renderRcs() {
  if(!lastBeam || !current)return;
