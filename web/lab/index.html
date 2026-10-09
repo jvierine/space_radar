@@ -212,6 +212,12 @@
         </p>
         <div class="fields">
           <label
+            >Search method<select id="algorithm">
+              <option value="fft" selected>Correction grid + FFT (automatic)</option>
+              <option value="direct">Direct physical grid (reference)</option>
+            </select></label>
+          <label>Estimated cell phase loss (%)<input id="phaseLoss" type="number" min="0.1" max="50" step="0.5" value="5" /></label>
+          <label
             >Coherent pulses<select id="pulses">
               <option>1</option>
               <option>2</option>
@@ -278,6 +284,7 @@
             </tr>
           </tbody>
         </table>
+        <p id="gridNote" class="note">Enter the physical bounds. For coherent trains, automatic mode adapts midpoint range, radial velocity, and curvature to the estimated phase tolerance; grid-point counts apply only to the direct reference search. FFT candidates are verified with the full physical template. The phase tolerance is a numerical estimate, not a guaranteed global bound. One chirp uses the existing direct reference.</p>
         <div class="actions">
           <button id="search" class="primary">Search selected train</button
           ><button id="compare">Compare 1 / 2 / 4 / 8 / 16</button
@@ -331,7 +338,7 @@
           </div>
         </div>
         <p class="note">
-          Both maps show the full configured search bounds. Crosses mark the
+          Both maps show the full configured search bounds. Automatic mode shows MAX projections of the evaluated physical points (gray pixels are unevaluated); the strongest FFT candidates receive physical refinement. Crosses mark the
           global best fit. Both maps also maximize over stored-I/Q orientation.
           Mirroring (x₀, v) → (−x₀, −v) gives the same monostatic range history.
           The bank peak is a candidate fit, not an identified projectile.
@@ -349,7 +356,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009beam2"></script>
+    <script type="module" src="app.mjs?v=20261009midpoint1"></script>
     <script type="module" src="beam-ui.mjs?v=20261009beam2"></script>
   </body>
 </html>

@@ -86,6 +86,8 @@ function setup(job, pulses, start) {
       "Need at least eight intact, independent noise-reference trains for this pulse count. Enlarge the noise interval.",
     );
   const g = job.grid;
+  if(job.algorithm === "fft") return 0;
+  if (![g.xN,g.yN,g.vN].every(n=>Number.isInteger(n)&&n>0) || g.xN*g.yN*g.vN>150000) throw Error("Direct reference grid must contain 1–150,000 templates.");
   return wasm.grid(
     g.xMin,
     g.xMax,
@@ -99,7 +101,26 @@ function setup(job, pulses, start) {
   );
 }
 async function bank(job, pulses, start, token, phase = "search", scan = false) {
-  const total = setup(job, pulses, start);
+  if (pulses === 1 && job.algorithm === "fft") job = {...job, algorithm:"direct"};
+  const started = performance.now();
+  let total = setup(job, pulses, start);
+  let automatic = null, cells = null;
+  if (job.algorithm === "fft") {
+    const g = job.grid;
+    if (wasm.auto_begin(g.xMin,g.xMax,g.yMin,g.yMax,g.vMin,g.vMax,job.loss/100,150000) < 0)
+      throw Error("Invalid bounds or correction-phase loss limit.");
+    for (;;) {
+      if (token !== generation) return null;
+      const done = wasm.auto_build_batch(128);
+      if (done === -1) throw Error("The requested correction grid exceeds 150,000 cells. Narrow the bounds, shorten the coherent train, or increase the phase-loss allowance.");
+      if (done < 0) throw Error("Cannot bound corrections over this domain. Use positive y₀ and a finite velocity interval.");
+      wasm.auto_info(); automatic = [...copy()];
+      send("progress", {fraction:0, pulses,phase:`Building automatic grid · ${automatic[0]} accepted / ${automatic[1]} pending`});
+      if (done > 0) {total=done;break;}
+      await yieldUI();
+    }
+    wasm.auto_cells(); cells=copy();
+  }
   let windows = 0;
   if (scan) {
     if ((job.scanStop - job.scanStart) / job.scanStride > 512)
@@ -110,17 +131,26 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     if (!windows)
       throw Error("No intact independent trains in the scan interval.");
   }
-  for (let first = 0; first < total; first += 32) {
+  const batch = job.algorithm === "fft" ? 8 : 32;
+  for (let first = 0; first < total; first += batch) {
     if (token !== generation) return null;
-    wasm.search_batch(first, 32);
+    wasm.search_batch(first, batch);
     send("progress", {
-      fraction: Math.min((first + 32) / total, 1),
+      fraction: Math.min((first + batch) / total, 1),
       pulses,
-      phase,
+      phase: `${phase} · ${total} ${automatic ? "midpoint correction cells" : "templates"}`,
       windows,
     });
     await yieldUI();
   }
+  if (automatic) {
+    send("progress", {fraction:1,pulses,phase:"Refining FFT peaks with the physical template",windows});
+    await yieldUI();
+    if (token !== generation) return null;
+    wasm.auto_refine(32);
+  }
+  let nodes=null;
+  if(automatic){wasm.auto_nodes();nodes=copy();}
   const cubeLength = wasm.matches(),
     packed = copy();
   wasm.fitted();
@@ -146,6 +176,12 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     receiver: job.receiver,
     rx,
     period: job.period,
+    algorithm: job.algorithm ?? "direct",
+    automatic,
+    cells,
+    nodes,
+    seconds: (performance.now()-started)/1000,
+    loss: job.loss,
   };
 }
 onmessage = async ({ data: msg }) => {
@@ -153,7 +189,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009"),
+        fetch("core.wasm?v=20261009midpoint1"),
         {},
       );
       wasm = result.instance.exports;

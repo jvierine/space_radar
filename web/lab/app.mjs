@@ -1,7 +1,7 @@
 import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009k";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009k", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009midpoint1", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -21,13 +21,15 @@ function status(text, error = false) {
   $("status").classList.toggle("error", error);
 }
 function setBusy(value) {
-  window.dispatchEvent(new CustomEvent("fmcw-busy", { detail: value }));
   busy = value;
+  window.dispatchEvent(new CustomEvent("fmcw-busy", { detail: value }));
   for (const el of document.querySelectorAll(
     ".settings input,.settings select,.settings button,#matchSettings input,#matchSettings select,#search,#compare,#scan",
   ))
     el.disabled = value || !loaded;
   $("cancel").disabled = !value;
+  for (const id of ["xN", "yN", "vN"]) $(id).disabled = value || !loaded || $("algorithm").value === "fft";
+  $("phaseLoss").disabled = value || !loaded || $("algorithm").value !== "fft";
   for (const map of maps) map.drawWindow();
 }
 function assertRange(a, b) {
@@ -340,14 +342,13 @@ function grid() {
       !Number.isFinite(g[a + "Min"]) ||
       !Number.isFinite(g[a + "Max"]) ||
       g[a + "Min"] > g[a + "Max"] ||
-      !Number.isInteger(g[a + "N"]) ||
-      g[a + "N"] < 1
+      ($("algorithm").value === "direct" && (!Number.isInteger(g[a + "N"]) || g[a + "N"] < 1))
     )
       throw Error("Invalid trajectory grid.");
   if (g.yMin <= 0 || Math.max(Math.abs(g.vMin), Math.abs(g.vMax)) > 100000)
     throw Error("Use positive perpendicular distance and |v| ≤ 100 km/s.");
   const cells = g.xN * g.yN * g.vN;
-  if (cells > 150000)
+  if ($("algorithm").value === "direct" && cells > 150000)
     throw Error(
       "Limit the bank to 150,000 templates; use a coarse search then refine.",
     );
@@ -364,6 +365,9 @@ function run(compare = false, timeScan = false) {
       stop: num("bgStop"),
     });
     const g = grid();
+    const loss = num("phaseLoss");
+    if ($("algorithm").value === "fft" && (!Number.isFinite(loss) || loss <= 0 || loss > 50))
+      throw Error("Choose a correction-phase loss greater than 0% and at most 50%.");
     assertRange(num("noiseStart"), num("noiseStop"));
     const needed = compare ? 16 : num("pulses");
     if (
@@ -383,6 +387,8 @@ function run(compare = false, timeScan = false) {
       noiseStart: num("noiseStart"),
       noiseStop: num("noiseStop"),
       grid: g,
+      algorithm: $("algorithm").value,
+      loss,
       compare,
       scan: timeScan,
       scanStart: num("scanStart"),
@@ -400,7 +406,7 @@ function run(compare = false, timeScan = false) {
     compareResults = [];
     $("compareResults").innerHTML = "";
     $("progress").value = 0;
-    status(`Searching ${g.xN * g.yN * g.vN} trajectory templates…`);
+    status(job.algorithm === "fft" ? "Building correction cells from the physical bounds…" : `Searching ${g.xN * g.yN * g.vN} trajectory templates…`);
     worker.postMessage(job);
   } catch (e) {
     status(e.message, true);
@@ -422,12 +428,22 @@ function showMatch(r) {
   vy.root.style.display = "block";
   maps.forEach((m) => m.overlay({ bands: bands() }));
   const g = r.grid,
-    nv = g.vN,
-    nx = g.xN,
-    ny = g.yN,
+    nv = r.cells ? Math.max(1,Math.min(48,Math.ceil(Math.sqrt(r.cube.length)))) : g.vN,
+    nx = r.cells ? nv : g.xN,
+    ny = r.cells ? nv : g.yN,
     a = new Float32Array(nx * nv).fill(-Infinity),
     b = new Float32Array(ny * nv).fill(-Infinity);
-  for (let ix = 0; ix < nx; ix++)
+  if (r.cells) {
+    const project = (dest, lo, hi, axis, rows) => {
+      for (let cell=0;cell<r.cube.length;cell++) {
+        const score=db(r.cube[cell]), point=r.nodes.subarray(cell*3,cell*3+3);
+        const row=Math.min(rows-1,Math.max(0,Math.floor((point[axis]-lo)/(hi-lo || 1)*rows)));
+        const col=Math.min(nv-1,Math.max(0,Math.floor((point[2]-g.vMin)/(g.vMax-g.vMin || 1)*nv)));
+        dest[row*nv+col]=Math.max(dest[row*nv+col],score);
+      }
+    };
+    project(a,g.xMin,g.xMax,0,nx); project(b,g.yMin,g.yMax,1,ny);
+  } else for (let ix = 0; ix < nx; ix++)
     for (let iy = 0; iy < ny; iy++)
       for (let iv = 0; iv < nv; iv++) {
         const score = db(r.cube[(ix * ny + iy) * nv + iv]);
@@ -483,7 +499,7 @@ function showMatch(r) {
   const overlap =
     r.start < num("bgStop") && r.start + r.pulses > num("bgStart");
   $("matchSummary").textContent =
-    `${r.pulses} pulses · chirps ${r.start}–${r.start + r.pulses - 1} · peak ${peak.toFixed(2)} dB · x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s · ${noiseCount} noise-reference trains · ${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)} µs sampled / ${((r.pulses - 1) * r.period * 1e6 + (meta.samples / meta.parameters.fs) * 1e6).toFixed(2)} µs elapsed${overlap ? " · selected train overlaps the mean-estimation interval" : ""}`;
+    `${r.pulses} pulses · chirps ${r.start}–${r.start + r.pulses - 1} · peak ${peak.toFixed(2)} dB · x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s · ${noiseCount} noise-reference trains · ${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)} µs sampled / ${((r.pulses - 1) * r.period * 1e6 + (meta.samples / meta.parameters.fs) * 1e6).toFixed(2)} µs elapsed · ${r.seconds.toFixed(2)} s${r.automatic ? ` · ${r.automatic[0]} automatic cells · FFT ${r.automatic[2]} × ${r.automatic[3]} · ${r.automatic[6]} shared FFT corrections · estimated cell phase loss ${r.loss}%` : " · direct grid"}${overlap ? " · selected train overlaps the mean-estimation interval" : ""}`;
   const xx = [],
     obs = [],
     model = [],
@@ -764,8 +780,10 @@ for (const id of [
   "noiseStart",
   "noiseStop",
   "receiver",
+  "phaseLoss",
 ])
   $(id).addEventListener("change", invalidate);
+$("algorithm").onchange = () => { invalidate(); setBusy(false); };
 try {
   setBusy(false);
   const response = await fetch("datasets/test63/metadata.json", {

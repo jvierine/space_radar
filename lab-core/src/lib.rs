@@ -3,6 +3,7 @@
 use std::cell::RefCell;
 use std::f64::consts::PI;
 const C: f64 = 299_792_458.0;
+mod fft_search;
 #[derive(Clone, Copy, Default)]
 struct Z {
     r: f64,
@@ -152,6 +153,7 @@ struct Engine {
     scan_data: Vec<Vec<Z>>,
     scan_peaks: Vec<f32>,
     scan_theta: Vec<usize>,
+    fast: Option<fft_search::Fast>,
 }
 impl Engine {
     fn residual(&self, k: usize) -> Vec<Z> {
@@ -208,6 +210,10 @@ impl Engine {
         };
     }
     fn theta(&self, index: usize) -> (f64, f64, f64) {
+        if let Some(fast) = &self.fast {
+            let [x, y, v] = fast.cells[index].theta;
+            return (x, y, v);
+        }
         let ny = self.axes[1].len();
         let nv = self.axes[2].len();
         (
@@ -321,6 +327,7 @@ pub unsafe extern "C" fn load(
             scan_data: vec![],
             scan_peaks: vec![],
             scan_theta: vec![],
+            fast: None,
         })
     });
 }
@@ -507,6 +514,7 @@ pub extern "C" fn grid(
                 .collect()
         }
         a.axes = [axis(xlo, xhi, nx), axis(ylo, yhi, ny), axis(vlo, vhi, nv)];
+        a.fast = None;
         a.scores = vec![f32::NAN; nx * ny * nv];
         a.signs = vec![0.; nx * ny * nv];
         a.best_score = -1.;
@@ -548,6 +556,10 @@ pub extern "C" fn search_batch(first: usize, count: usize) -> usize {
         let a = e.as_mut().unwrap();
         let stop = (first + count).min(a.scores.len());
         for index in first..stop {
+            if a.fast.is_some() {
+                fft_search::search_cell(a, index);
+                continue;
+            }
             let q = a.q(index);
             if q.iter().map(|z| z.power()).sum::<f64>() < 1e-40 {
                 continue;
@@ -677,6 +689,119 @@ pub extern "C" fn result_ptr() -> *const f32 {
 #[no_mangle]
 pub extern "C" fn result_len() -> usize {
     ENGINE.with(|e| e.borrow().as_ref().unwrap().out.len())
+}
+#[no_mangle]
+pub extern "C" fn auto_begin(
+    xlo: f64,
+    xhi: f64,
+    ylo: f64,
+    yhi: f64,
+    vlo: f64,
+    vhi: f64,
+    loss: f64,
+    cap: usize,
+) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let Some(fast) = fft_search::Fast::new(a, [[xlo, xhi], [ylo, yhi], [vlo, vhi]], loss, cap)
+        else {
+            return -1;
+        };
+        a.fast = Some(fast);
+        a.best = 0;
+        a.best_score = -1.;
+        a.scores.clear();
+        a.signs.clear();
+        a.scan_starts.clear();
+        a.scan_data.clear();
+        a.scan_peaks.clear();
+        a.scan_theta.clear();
+        0
+    })
+}
+#[no_mangle]
+pub extern "C" fn auto_build_batch(count: usize) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let mut fast = a.fast.take().unwrap();
+        let result = fast.build(a, count);
+        if result > 0 {
+            a.scores = vec![f32::NAN; result as usize];
+            a.signs = vec![0.; result as usize];
+        }
+        a.fast = Some(fast);
+        result
+    })
+}
+#[no_mangle]
+pub extern "C" fn auto_info() -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let f = a.fast.as_ref().unwrap();
+        a.out = vec![
+            f.cells.len() as f32,
+            f.pending() as f32,
+            f.nf as f32,
+            f.ns as f32,
+            f.limit as f32,
+            f.cells.iter().map(|c| c.error).fold(0., f64::max) as f32,
+            f.bank_count() as f32,
+        ];
+        a.out.len()
+    })
+}
+#[no_mangle]
+pub extern "C" fn auto_cells() -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        a.out = a
+            .fast
+            .as_ref()
+            .unwrap()
+            .cells
+            .iter()
+            .flat_map(|c| c.bounds.iter().flat_map(|b| b.iter().map(|v| *v as f32)))
+            .collect();
+        a.out.len() / 6
+    })
+}
+#[no_mangle]
+pub extern "C" fn auto_nodes() -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        a.out = a
+            .fast
+            .as_ref()
+            .unwrap()
+            .cells
+            .iter()
+            .flat_map(|c| c.theta.map(|x| x as f32))
+            .collect();
+        a.out.len() / 3
+    })
+}
+#[no_mangle]
+pub extern "C" fn auto_refine(count: usize) -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let f = a.fast.as_ref().unwrap();
+        let mut indices: Vec<usize> = (0..f.cells.len()).collect();
+        indices.sort_by(|&i, &j| f.cells[j].candidate.total_cmp(&f.cells[i].candidate));
+        indices.truncate(count.min(indices.len()));
+        if !indices.contains(&a.best) {
+            indices.push(a.best);
+        }
+        for index in &indices {
+            fft_search::refine_cell(a, *index);
+        }
+        indices.len()
+    })
 }
 #[cfg(test)]
 mod tests {

@@ -126,3 +126,53 @@ with a cross; colour-scale maxima equal the actual matched-filter peak.
 The yellow integration window is draggable on all three measurement maps.
 Its pulse count stays fixed and trains stay within one frame. Releasing a
 moved train repeats an existing search; otherwise it selects the train.
+
+## Coherent correction-grid FFT search (Memo 8)
+
+The automatic mode is intended for **multi-chirp** integration. It uses
+midpoint coordinates `R = range`, `U = radial velocity`, and `G = range
+acceleration`. For each velocity branch,
+`v = ±sqrt(U² + R*G)`, `x0 = v*t_mid - R*U/v`, and
+`y0 = sqrt(G*R³)/abs(v)`. Original human-supplied x0/y0/v bounds remain the
+constraints. A separate static template handles v=0. One-chirp comparison
+retains the existing direct reference; its ordinary Fourier spectrum is
+already available in the measurement plots.
+
+The exact retarded phase is separated into a constant, a fast/slow frequency
+plane, and its nonlinear remainder. Similar correction curves share a
+zero-padded 2D FFT over fast samples and chirp index. There are no fabricated
+samples in chirp gaps and no independent fitted phase per chirp. The fast
+frequency mixes range and Doppler; physical slow-frequency aliases are
+checked during refinement. Both stored-I/Q orientations remain supported.
+
+FFT energy peaks propose extra physical candidates. The quiet-referenced
+statistic, projection points, and fitted waveform are evaluated using the
+full physical template at every accepted representative and every refined
+candidate. This screening/refinement is approximate and does not guarantee
+the global continuous maximum. The maps take MAX over evaluated physical
+points binned to the displayed axes; gray map pixels have no evaluation.
+They do not fill a physical bounding rectangle with a single point's score.
+
+Grid spacing comes from sampled phase changes/derivatives at feasible local
+nodes, with a safety factor. **Estimated cell phase loss is not a certified
+worst-case loss.** Correction sharing has a separate tolerance; FFT bins and
+finite refinement add approximations. Full bounds close to the radar can
+still exceed the 150,000-cell cap, particularly for 8/16 chirps. The worker
+reports failure and does not return an incomplete bank or silently shrink
+bounds. Narrower physically justified bounds can be much cheaper.
+
+Validate the shipped binary and benchmark 4/8/16-chirp synthetic recovery:
+
+```sh
+conda run --no-capture-output -n base python tools/validate_fft_search.py
+```
+
+The comparison uses identical measurements and bounds, against a 31×11×41
+physical reference grid; these are different discretizations. Timings include
+automatic planning, FFT search, and physical refinement, and are specific to
+the machine. Exact returned scores, fitted complex waveforms, mirrored geometry,
+and reversed stored I/Q are verified independently. Results and the Wasm hash
+are stored in `web/lab/qa/fft_search_validation.h5` (ignored by Git).
+Implementation: `lab-core/src/fft_search.rs`; benchmark driver:
+`tools/benchmark_fft.mjs`; memo: Overleaf project `6ac509d9d83f597ac920e7de`,
+`fmcw_memo_008.tex`.
