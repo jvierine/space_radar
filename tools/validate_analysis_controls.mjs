@@ -1,0 +1,12 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync('web/lab/app.mjs','utf8'),elements=new Map();
+const $=id=>{if(!elements.has(id))elements.set(id,{disabled:false,value:id==='algorithm'?'fft':0});return elements.get(id);};
+const context={$ ,loaded:true,busy:false,analysisComplete:false,maps:[],window:{dispatchEvent(){}},document:{querySelectorAll:()=>[]},CustomEvent:class{}};
+vm.createContext(context);const start=source.indexOf('function setBusy('),end=source.indexOf('function assertRange',start);vm.runInContext(source.slice(start,end),context);
+vm.runInContext('setBusy(false)',context);assert.equal($('download').disabled,true);
+vm.runInContext('analysisComplete=true;setBusy(false)',context);assert.equal($('download').disabled,false);
+vm.runInContext('setBusy(true)',context);assert.equal($('download').disabled,true);
+vm.runInContext('analysisComplete=false;setBusy(false)',context);assert.equal($('download').disabled,true);
+const commit=source.slice(source.indexOf('label: "Coherent integration"'),source.indexOf("label:'Analyze interval'"));assert(commit.includes('      run();'));assert(!commit.includes('repeatSearch'));
+assert.match(source,/m.type === "complete"\) \{\s*analysisComplete=true;/);
+console.log('PASS: download disabled before/during/incomplete analysis, enabled on completion; yellow release always analyzes');

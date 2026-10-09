@@ -2,19 +2,14 @@
 
 The trajectory bank sums **powers from all four receivers**, after subtracting
 each receiver's own complex mean from the event at every fast-time sample.
-Quiet noise-reference samples are raw I/Q: no complex-mean subtraction. At each template
-and common stored-I/Q orientation the score is
-
-```
-rho = sum_rx |MF(event_rx)|^2 / mean_quiet_train(sum_rx |MF(quiet_rx)|^2)
-display = 10 log10(rho)
-```
-
-Quiet trains are common to the four receivers, nonoverlapping, frame-contained,
-and outside the event interval (the blue window supplies both the mean and raw references). Padding/nonfinite chirps
-on any receiver exclude that train. The display receiver selector affects raw
-plots and fit traces, not the bank's objective. Beamforming subsequently searches
-receiver phases at the shared trajectory fit.
+Noise uses raw full-sample-bandwidth complex sample power, E[|I+iQ|²],
+without removing the quiet mean. One intact background chirp is sufficient.
+For a template q, matched noise energy is sample power times Σ|q|²;
+this propagation assumes temporally white noise. Beam noise uses the raw
+four-receiver sample covariance times template energy, retaining receiver
+correlations. Background samples are not counted as independent matched trains.
+The selected receiver controls all three voltage/spectrum plots and fit traces;
+the trajectory bank still sums all four receiver matched powers.
 
 CPU and WebGPU FFT arithmetic/storage are complex64 (two float32 components).
 CPU twiddles are cached; phase construction and CPU energy accumulation remain
@@ -77,4 +72,6 @@ stationary clutter. Their template-dependent denominator can favor a different
 ratio maximum from the injected trajectory; the raw-clutter NumPy regression
 verifies the exact statistic separately from white-noise recovery tests.
 
-HDF5 download uses vendored h5wasm 0.10.3 (NIST; license in vendor/h5wasm). It stores every completed train estimate, receiver/beam scores, phase search outputs, RCS and every diameter inversion root, plus the current full matched-filter bank and complex voltage fit. Timing is reconstructed. `tools/validate_analysis_export.mjs` and independent h5py readback validate the exported file. Waveforms, fitted trajectories, SNR and diameter curves use lines; range, velocity, acceleration, RCS and phase histories use unconnected scatter points. `tools/validate_spectrum_average.mjs` checks the four-receiver power-average spectrogram independently.
+HDF5 download uses vendored h5wasm 0.10.3 (NIST; license in vendor/h5wasm). It stores every completed train estimate, receiver/beam scores, phase search outputs, RCS and every diameter inversion root, plus the current full matched-filter bank and complex voltage fit. Timing is reconstructed. `tools/validate_analysis_export.mjs` and independent h5py readback validate the exported file. Waveforms, fitted trajectories, SNR and diameter curves use lines; range, velocity, acceleration, RCS and phase histories use unconnected scatter points. `tools/validate_selected_spectrum.mjs` checks the selected receiver spectrogram independently.
+
+Short-background regression: `tools/validate_short_background.mjs` checks the exact user bounds [3648,3677) and all 194 usable analysis starts in [3701,3916), then a single background chirp. `tools/validate_fullband_noise.mjs` independently verifies full-bandwidth power, matched-template energy normalization, and beam covariance. Earlier timing measurements above used the previous matched-background-train normalization.

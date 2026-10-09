@@ -92,7 +92,7 @@ export class GpuRadial {
  let i=id.x;if(i>=p.nodes){return;}
  let node=lookup[i];var event=0.0;var quiet=0.0;
  for(var t=0u;t<${channels}u;t++){let z=spectra[t*p.columns*${ns}u+node.y];event+=dot(z,z);}
- for(var t=${channels}u;t<${trains}u;t++){let z=spectra[t*p.columns*${ns}u+node.y];quiet+=dot(z,z)/${(trains-channels)/channels}.0;}
+ ${trains===channels?"quiet=bitcast<f32>(p.unused);":`for(var t=${channels}u;t<${trains}u;t++){let z=spectra[t*p.columns*${ns}u+node.y];quiet+=dot(z,z)/${(trains-channels)/channels}.0;}`}
  if(quiet>1e-24){let ratio=event/quiet;
   scores[node.x]=max(scores[node.x],ratio);
  }
@@ -145,7 +145,8 @@ export class GpuRadial {
      device.queue.writeBuffer(correction,0,pack.subarray(offset,offset+=2*n*pulses));
      device.queue.writeBuffer(columns,0,pack.subarray(offset,offset+=nc));
      device.queue.writeBuffer(lookup,0,pack.subarray(offset));
-     device.queue.writeBuffer(mainParams,0,new Uint32Array([nc,nodes,orientation,0]));
+     const parameters=new Uint32Array([nc,nodes,orientation,0]);new Float32Array(parameters.buffer)[3]=wasm.radial_noise_power?.()??0;
+     device.queue.writeBuffer(mainParams,0,parameters);
      const encoder=device.createCommandEncoder();run(encoder,prepare,prepGroup,trains*pulses);
      run(encoder,gather,gatherGroup,trains*nc);
      run(encoder,score,scoreGroup,Math.ceil(nodes/128));device.queue.submit([encoder.finish()]);

@@ -297,6 +297,7 @@ pub(super) fn search_group(a: &mut Engine, index: usize) {
                 *d += z.power() / (a.noise.len() / a.channels()) as f64;
             }
         }
+        if !a.noise_power.is_empty(){noise.fill(a.noise_power.iter().sum::<f64>()*(a.n*a.pulses) as f64);}
         for (i, j) in lookup {
             if noise[j] > 1e-24 {
                 let score = (event[j] / noise[j]) as f32;

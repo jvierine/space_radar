@@ -1,6 +1,6 @@
-import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009export8';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009export8';
-import {runRadial} from './radial-backend.mjs?v=20261009export8';
+import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009noisepower9';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009noisepower9';
+import {runRadial} from './radial-backend.mjs?v=20261009noisepower9';
 let wasm,
   meta,
   data,
@@ -9,8 +9,6 @@ let wasm,
   bgRange,
   noiseRange;
 let searchFinished=Promise.resolve();
-let spectrumEngine,spectrumModule,spectrumQueue=Promise.resolve();
-const spectrumCache=new Map();
 const streams=new Map();
 const send = (type, rest = {}) => postMessage({ type, ...rest });
 const copy = () =>
@@ -54,7 +52,6 @@ async function load(receiver) {
   send("loaded", { rx, verified_sha256: meta.transport[rx].sha256 });
 }
 function setBackground(a, b) {
-  if(String(bgRange)!==String([a,b]))for(const key of spectrumCache.keys())if(key.startsWith("sub:"))spectrumCache.delete(key);
   bgRange = [a, b];
   const count = wasm.background(a, b);
   if (!count) throw Error("Quiet mean interval contains no valid chirps");
@@ -66,39 +63,14 @@ function setBackground(a, b) {
     fft_n: 2 ** Math.ceil(Math.log2(meta.samples)),
   });
 }
-async function averagedSpectrum(sub) {
-  const key=sub?`sub:${bgRange}`:'raw';
-  if(spectrumCache.has(key))return spectrumCache.get(key);
-  const bounds=[...bgRange];
-  const promise=spectrumQueue.then(async()=>{
-    spectrumEngine??=(await WebAssembly.instantiate(spectrumModule,{})).exports;
-    const w=spectrumEngine,p=meta.parameters,nf=2**Math.ceil(Math.log2(meta.samples));
-    const values=new Float32Array(meta.total_chirps*nf);
-    for(let receiver=0;receiver<4;receiver++){
-      const z=await channel(receiver),ptr=w.allocate(z.length);
-      new Float32Array(w.memory.buffer,ptr,z.length).set(z);
-      w.load(ptr,meta.total_chirps,meta.samples,meta.chirps_per_frame,p.fs,p.T_adc,p.T_adc+meta.samples/p.fs+p.T_idle+meta.ramp_tail_us_assumption*1e-6,p.f_start,p.freq_slope);
-      w.release(ptr,z.length);if(sub)w.background(...bounds);
-      w.image(0,meta.total_chirps,sub?5:4);
-      const a=new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len());
-      for(let i=0;i<a.length;i++)values[i]+=a[i]/4;
-    }
-    return values;
-  });
-  spectrumQueue=promise.catch(()=>{});spectrumCache.set(key,promise);return promise;
-}
 async function view(start, stop, component, fftSub) {
   const images = [];
   for (const mode of [component, component + 1, fftSub ? 5 : 4]) {
     const height = wasm.image(start, stop, mode);
     images.push({ mode, height, values: copy() });
   }
-  const [average,ref]=await Promise.all([averagedSpectrum(fftSub),averagedSpectrum(false)]);
-  const nf=2**Math.ceil(Math.log2(meta.samples));
-  images[2].values=new Float32Array((stop-start)*nf);
-  for(let j=0;j<nf;j++)images[2].values.set(average.subarray(j*meta.total_chirps+start,j*meta.total_chirps+stop),j*(stop-start));
-  let peak=0;
-  for(const v of ref)if(Number.isFinite(v)&&v>peak)peak=v;
+  wasm.image(0,meta.total_chirps,4);const ref=copy();
+  let peak=0;for(const v of ref)if(Number.isFinite(v)&&v>peak)peak=v;
   send("view", { start, stop, images, fft_peak: peak });
 }
 function trace(chirp) {
@@ -107,14 +79,14 @@ function trace(chirp) {
 }
 function setup(job, pulses, start) {
   noiseRange = [job.noiseStart, job.noiseStop];
-  const n = wasm.prepare(start, pulses, ...noiseRange, +job.receiver);
+  const n = wasm.prepare_power(start, pulses, ...noiseRange, +job.receiver);
   if (n === -1)
     throw Error(
       "This train crosses a frame boundary or contains padded samples. Select an intact train.",
     );
   if (n === -2)
     throw Error(
-      "Need at least eight intact, independent noise-reference trains for this pulse count. Enlarge the noise interval.",
+      "Blue background needs one intact chirp for full-bandwidth noise power.",
     );
   const g = job.grid;
   if(job.algorithm === "fft") return 0;
@@ -136,11 +108,13 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
   let total = setup(job, pulses, start);
   const receivers=await Promise.all(meta.transport.map((_,i)=>channel(i)));
   if(token!==generation)return null;
-  const trains=prepareReceiverTrains(receivers,{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:job.noiseStart,noiseStop:job.noiseStop});
+  const trains=prepareReceiverTrains(receivers,{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:job.noiseStart,noiseStop:job.noiseStop,fullBandwidth:true});
   const ptr=wasm.allocate(trains.data.length);
   try {
     new Float32Array(wasm.memory.buffer,ptr,trains.data.length).set(trains.data);
     if(wasm.search_receivers(ptr,trains.data.length,4,trains.quietCount,rx)<0)throw Error('Invalid four-receiver trains');
+    const np=wasm.allocate(4);new Float32Array(wasm.memory.buffer,np,4).set(trains.noisePower);
+    try{if(wasm.search_noise_power(np,4)<0)throw Error('Invalid raw background noise power');}finally{wasm.release(np,4);}
   } finally {wasm.release(ptr,trains.data.length);}
 
   let automatic = null, cells = null;
@@ -221,6 +195,7 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     receiver: job.receiver,
     searchReceivers: 4,
     referenceStarts: trains.referenceStarts,
+    noisePower:trains.noisePower,noiseSamples:trains.noiseSamples,noiseModel:"raw full-bandwidth sample power",
     rx,
     period: job.period,
     algorithm: job.algorithm ?? "direct",
@@ -237,11 +212,10 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009export8"),
+        fetch("core.wasm?v=20261009noisepower9"),
         {},
       );
       wasm = result.instance.exports;
-      spectrumModule=result.module;
       await load(msg.rx ?? 0);
       setBackground(msg.bgStart, msg.bgStop);
     } else if (msg.type === "rx") {
@@ -271,21 +245,23 @@ onmessage = async ({ data: msg }) => {
       const results = [];
       for (const n of msg.compare ? (msg.algorithm==="fft" ? [2,4,8,16] : [1,2,4,8,16]) : [msg.pulses]) {
         if(msg.scan) {
-          let winner=null,scan=[];
+          let winner=null,scan=[],overlapSkipped=0,invalidSkipped=0;
           const receivers=await Promise.all(meta.transport.map((_,i)=>channel(i)));
           const valid=commonValid(receivers,meta.samples,meta.total_chirps);
           send('scan-start',{start:msg.scanStart,stop:msg.scanStop});
           for(let start=msg.scanStart;start+n<=msg.scanStop;start++) {
             if(token!==generation)return;
-            if(start<msg.noiseStop && start+n>msg.noiseStart || start<bgRange[1] && start+n>bgRange[0])continue;
-            if(Math.floor(start/meta.chirps_per_frame)!==Math.floor((start+n-1)/meta.chirps_per_frame)||!valid.slice(start,start+n).every(Boolean))continue;
-            if(wasm.prepare(start,n,msg.noiseStart,msg.noiseStop,+msg.receiver)<0)continue;
+            if(start<msg.noiseStop && start+n>msg.noiseStart || start<bgRange[1] && start+n>bgRange[0]){overlapSkipped++;continue;}
+            if(Math.floor(start/meta.chirps_per_frame)!==Math.floor((start+n-1)/meta.chirps_per_frame)||!valid.slice(start,start+n).every(Boolean)){invalidSkipped++;continue;}
+            const prepared=wasm.prepare_power(start,n,msg.noiseStart,msg.noiseStop,+msg.receiver);
+            if(prepared===-2)throw Error('Blue background needs one intact chirp for full-bandwidth noise power.');
+            if(prepared<0){invalidSkipped++;continue;}
             const candidate=await bank({...msg,scan:false},n,start,token,'time scan');
             if(!candidate)return;
             const p=meta.parameters;
             (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
-            const projections=projectReceivers(receivers,copy(),{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses:n,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:msg.noiseStart,noiseStop:msg.noiseStop,conjugated:candidate.best[4]>0});
-            candidate.beam=phaseSearch(projections.event,projections.noise,msg.beamSteps??10);
+            const projections=projectReceivers(receivers,copy(),{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses:n,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:msg.noiseStart,noiseStop:msg.noiseStop,conjugated:candidate.best[4]>0,fullBandwidth:true});
+            candidate.beam=phaseSearch(projections.event,projections.noise,msg.beamSteps??10,projections.noiseCovariance);
             // RCS sampled coherent time is unchanged by receiver phases.
             (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
             const q=copy();let sum=0,energy=0;
@@ -298,7 +274,7 @@ onmessage = async ({ data: msg }) => {
             await yieldUI();if(token!==generation)return;
             if(!winner || candidate.best[3]>winner.best[3])winner=candidate;
           }
-          if(!winner)throw Error('No intact independent trains in the scan interval.');
+          if(!winner)throw Error(`No usable ${n}-chirp trains in the purple analysis window: ${overlapSkipped} overlap the background; ${invalidSkipped} contain padding or cross a frame. Move or enlarge the purple window.`);
           winner.scanResults=Float32Array.from(scan);winner.scanPoint=false;results.push(winner);send('match',{result:winner});continue;
         }
         let result = await bank(

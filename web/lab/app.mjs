@@ -1,9 +1,9 @@
 import {estimateRcs,diameterRoots} from './rcs.mjs?v=20261009rcs1';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009export8';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009export8";
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009noisepower9';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009noisepower9";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261009export8", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009noisepower9", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -14,6 +14,7 @@ let meta,
   fftPeak = 1,
   result,
   compareResults = [];
+let analysisComplete=false;
 let restoreFit=initialState?.fit===true;
 const state = { start: 0, stop: 6250, chirp: 625, pulses: 8, rx: 0, component:0, bgStart:0,bgStop:125,scanStart:625,scanStop:750 };
 function status(text, error = false) {
@@ -28,6 +29,7 @@ function setBusy(value) {
   ))
     el.disabled = value || !loaded;
   $("cancel").disabled = !value;
+  $("download").disabled=value||!analysisComplete;
   for (const id of ["xN", "yN", "vN"]) $(id).disabled = value || !loaded || $("algorithm").value === "fft";
   $("phaseLoss").disabled = value || !loaded || $("algorithm").value !== "fft";
   for (const map of maps) map.drawWindow();
@@ -94,7 +96,6 @@ function updateScan(r) {
     kinematics=[range,r.best[2]*x/range,r.best[2]**2*r.best[1]**2/range**3];
   }
   scanPoints.set(r.start,{start:r.start,midpoint:r.midpoint,kinematics,pulses:r.pulses,best:Array.from(r.best),model:r.model,grid:r.grid,referenceStarts:r.referenceStarts,beam:r.beam});
-  $("download").disabled=false;
   drawScanHistory();
 }
 function drawScanHistory() {
@@ -161,10 +162,9 @@ for (const map of maps)
       maps.forEach((plot) => plot.overlay({ bands: bands() }));
     },
     commit: () => {
-      const repeatSearch = !!result;
       invalidate();
       selectChirp(state.chirp);
-      if (repeatSearch) run();
+      run();
     },
   });
 for(const map of maps)map.enableWindow({
@@ -250,6 +250,7 @@ function invalidate() {
   const hadResult = !!result;
   if($("algorithm").value==='fft') for(const id of ['xN','yN','vN']) $(id).value='';
   result = undefined;
+  analysisComplete=false;$("download").disabled=true;
   $("progress").value = 0;
   vx.root.style.display = "none";
   vy.root.style.display = "none";
@@ -413,6 +414,7 @@ function run(compare = false, timeScan = false) {
         throw Error("Start stride must be a positive integer.");
 
     }
+    analysisComplete=false;
     setBusy(true);
     compareResults = [];
     $("compareResults").innerHTML = "";
@@ -704,6 +706,7 @@ worker.onmessage = ({ data: m }) => {
   } else if (m.type === "match") {
     showMatch(m.result);
   } else if (m.type === "complete") {
+    analysisComplete=true;
     setBusy(false);
     compareResults = m.results;
     if (m.results.length > 1) comparison(m.results);
@@ -821,12 +824,13 @@ try {
   console.error(e);
 }
 $('download').onclick=async()=>{
+  if(busy||!analysisComplete)return;
   const button=$('download');button.disabled=true;
   try{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261009export8',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261009noisepower9',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};
@@ -835,5 +839,5 @@ $('download').onclick=async()=>{
     const url=URL.createObjectURL(new Blob([bytes],{type:'application/x-hdf5'})),link=document.createElement('a');
     link.href=url;link.download='fmcw-test63-analysis.h5';link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
   }catch(error){status(`HDF5 export: ${error.message}`,true);}
-  finally{button.disabled=!scanPoints.size&&!result;}
+  finally{button.disabled=busy||!analysisComplete;}
 };

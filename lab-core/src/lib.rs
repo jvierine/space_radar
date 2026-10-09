@@ -216,6 +216,7 @@ struct Engine {
     event: Vec<Z>,
     events: Vec<Vec<Z>>,
     noise: Vec<Vec<Z>>,
+    noise_power: Vec<f64>,
     pulses: usize,
     start: usize,
     receiver: bool,
@@ -245,6 +246,7 @@ impl Engine {
         }
     }
     fn quiet_power(&self, q: &[Z], conj: bool) -> f64 {
+        if !self.noise_power.is_empty() {return self.noise_power.iter().sum::<f64>() * q.iter().map(|z|z.power()).sum::<f64>();}
         self.noise
             .iter()
             .map(|z| inner(q, z, conj).power())
@@ -426,6 +428,7 @@ pub unsafe extern "C" fn load(
             event: vec![],
             events: vec![],
             noise: vec![],
+            noise_power: vec![],
             pulses: 1,
             start: 0,
             receiver: false,
@@ -581,6 +584,7 @@ pub extern "C" fn prepare(
         a.pulses = pulses;
         a.receiver = receiver != 0;
         a.events.clear();
+        a.noise_power.clear();
         a.event = a.train(start, pulses);
         let mut candidates = vec![];
         let mut k = noise_start;
@@ -589,7 +593,7 @@ pub extern "C" fn prepare(
                 && (k + pulses <= start || k >= start + pulses)
             {
                 candidates.push(k);
-                k += pulses;
+                k += 1;
             } else {
                 k += 1;
             }
@@ -1077,7 +1081,7 @@ pub unsafe extern "C" fn search_receivers(
         let a = e.as_mut().unwrap();
         let width = 2 * a.n * a.pulses;
         if channels != 4
-            || quiet < 8
+            || quiet < 1
             || quiet > 24
             || selected >= channels
             || len != width * channels * (quiet + 1)
@@ -1188,4 +1192,26 @@ pub extern "C" fn radial_template(r: f64, v: f64, g: f64, pulses: usize, receive
             .collect();
         a.out.len()
     })
+}
+
+// Full-bandwidth raw complex noise power; no matched background trains required.
+#[no_mangle]
+pub extern "C" fn prepare_power(start:usize,pulses:usize,noise_start:usize,noise_stop:usize,receiver:usize)->isize {
+ ENGINE.with(|e|{let mut e=e.borrow_mut();let a=e.as_mut().unwrap();
+ if !a.valid_train(start,pulses){return -1;}
+ if noise_start>=noise_stop||noise_stop>a.rows||!a.valid[noise_start..noise_stop].iter().any(|v|*v){return -2;}
+ a.start=start;a.pulses=pulses;a.receiver=receiver!=0;a.noise_bounds=(noise_start,noise_stop);
+ a.events.clear();a.noise.clear();a.noise_power.clear();a.event=a.train(start,pulses);1
+ })
+}
+#[no_mangle]
+pub unsafe extern "C" fn search_noise_power(ptr:*const f32,len:usize)->isize {
+ ENGINE.with(|e|{let mut e=e.borrow_mut();let a=e.as_mut().unwrap();
+ let p=std::slice::from_raw_parts(ptr,len);if len!=a.channels()||p.iter().any(|v|!v.is_finite()||*v<=0.){return -1;}
+ a.noise_power=p.iter().map(|v|*v as f64).collect();a.noise.clear();len as isize
+ })
+}
+#[no_mangle]
+pub extern "C" fn radial_noise_power()->f64 {
+ ENGINE.with(|e|{let e=e.borrow();let a=e.as_ref().unwrap();a.noise_power.iter().sum::<f64>()*(a.n*a.pulses) as f64})
 }

@@ -13,15 +13,15 @@ try{
  const w=(await WebAssembly.instantiate(fs.readFileSync('web/lab/core.wasm'),{})).instance.exports,p=meta.parameters;
  for(const [message,mode] of [[sub,5],[raw,4]]){
   const expected=new Float32Array(4*256);
-  for(const spec of meta.transport){
+  for(const spec of [meta.transport[0]]){
    const bytes=fs.readFileSync('web/lab/datasets/test63/'+spec.file),a=new Float32Array(bytes.buffer,bytes.byteOffset,bytes.byteLength/4),ptr=w.allocate(a.length);
    new Float32Array(w.memory.buffer,ptr,a.length).set(a);w.load(ptr,meta.total_chirps,meta.samples,meta.chirps_per_frame,p.fs,p.T_adc,25.37e-6,p.f_start,p.freq_slope);w.release(ptr,a.length);w.background(0,125);w.image(750,754,mode);
-   const values=new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len());for(let i=0;i<values.length;i++)expected[i]+=values[i]/4;
+   const values=new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len());for(let i=0;i<values.length;i++)expected[i]=values[i];
   }
   assert.deepEqual(message.images[2].values,expected);
  }
  worker.postMessage({type:'rx',rx:2,bgStart:0,bgStop:125});await next('background');
  worker.postMessage({type:'view',start:750,stop:754,component:0,fftSub:true});const other=await next('view');
- assert.deepEqual(other.images[2].values,sub.images[2].values);assert.notDeepEqual(other.images[0].values,sub.images[0].values);
- console.log('PASS: raw and mean-subtracted spectra equal four-RX power averages; channel selector only changes voltage');
+ assert.notDeepEqual(other.images[2].values,sub.images[2].values);assert.notDeepEqual(other.images[0].values,sub.images[0].values);
+ console.log('PASS: raw and mean-subtracted spectra equal the selected receiver FFT; selector changes voltage and spectrum');
 }finally{await worker.terminate();}

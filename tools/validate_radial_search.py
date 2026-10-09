@@ -38,7 +38,7 @@ def run(n,bounds,truth,orientation=0,background_amplitude=0):
     if orientation:reference=reference.conj()
     starts=[];k=125
     while k+n<=625:
-        if k//125==(k+n-1)//125: starts.append(k);k+=n
+        if k//125==(k+n-1)//125: starts.append(k);k+=1
         else:k+=1
     quiet=np.stack([z[k:k+n].ravel() for k in starts])
     # prepare chooses at most 24 approximately uniformly spaced intact controls.

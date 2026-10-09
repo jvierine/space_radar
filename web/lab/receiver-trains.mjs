@@ -1,4 +1,4 @@
-// Mean-subtracted events; RAW common quiet trains for noise normalization.
+// Mean-subtracted events; RAW common quiet trains for noise normalization. Overlap is allowed; references are correlated.
 export function commonValid(receivers, samples, rows) {
   return Array.from({length:rows},(_,k)=>receivers.every(data=>{
     let run=0;
@@ -11,7 +11,7 @@ export function commonValid(receivers, samples, rows) {
     return true;
   }));
 }
-export function prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop}) {
+export function prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop,fullBandwidth=false}) {
   if(receivers.length!==4 || receivers.some(z=>z.length!==2*samples*rows))throw Error('Need four synchronized receivers.');
   if(![start,pulses,bgStart,bgStop,noiseStart,noiseStop].every(Number.isInteger) || bgStart<0 || bgStart>=bgStop || bgStop>rows || noiseStart<0 || noiseStart>=noiseStop || noiseStop>rows)throw Error('Invalid event/background bounds.');
   const valid=commonValid(receivers,samples,rows);
@@ -27,11 +27,23 @@ export function prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pul
     for(const k of quiet)for(let j=0;j<2*samples;j++)mean[j]+=data[2*k*samples+j]/quiet.length;
     return mean;
   });
+  if(fullBandwidth){
+    const quiet=Array.from({length:noiseStop-noiseStart},(_,i)=>noiseStart+i).filter(k=>valid[k]&&(k<start||k>=start+pulses));
+    if(!quiet.length)throw Error('Blue background needs one intact chirp outside the analysis train.');
+    const covariance=new Float64Array(32),count=quiet.length*samples;
+    for(const k of quiet)for(let j=0;j<samples;j++)for(let a=0;a<4;a++)for(let b=0;b<4;b++){
+      const t=2*(k*samples+j),ar=receivers[a][t],ai=receivers[a][t+1],br=receivers[b][t],bi=receivers[b][t+1],i=2*(a*4+b);
+      covariance[i]+=(ar*br+ai*bi)/count;covariance[i+1]+=(ai*br-ar*bi)/count;
+    }
+    const width=2*samples*pulses,data=new Float32Array(width*8);
+    for(let a=0;a<4;a++)for(let k=0;k<pulses;k++)for(let j=0;j<2*samples;j++)data[a*width+k*2*samples+j]=receivers[a][2*(start+k)*samples+j]-means[a][j];
+    return {data,means,meanCounts,referenceStarts:quiet,quietCount:1,noisePower:Float32Array.from({length:4},(_,a)=>covariance[2*(a*4+a)]),noiseCovariance:covariance,noiseSamples:count};
+  }
   const candidates=[];
   for(let k=noiseStart;k+pulses<=noiseStop;) {
-    if(trainValid(k)&&(k+pulses<=start||k>=start+pulses)){candidates.push(k);k+=pulses;}else k++;
+    if(trainValid(k)&&(k+pulses<=start||k>=start+pulses)){candidates.push(k);k++;}else k++;
   }
-  if(candidates.length<8)throw Error('Background must contain at least eight intact, nonoverlapping quiet trains outside the event. Enlarge the blue window.');
+  if(candidates.length<8)throw Error('Background must contain at least eight intact quiet windows outside the event (overlap allowed). Enlarge the blue window.');
   const count=Math.min(24,candidates.length);
   const referenceStarts=Array.from({length:count},(_,i)=>candidates[Math.floor(i*candidates.length/count)]);
   const width=2*samples*pulses,data=new Float32Array(width*4*(count+1));

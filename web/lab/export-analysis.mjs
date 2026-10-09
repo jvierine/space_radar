@@ -11,7 +11,7 @@ export async function writeAnalysis(h5,payload) {
     attr(file,'schema','fmcw-analysis-1');attr(file,'created_utc',new Date().toISOString());
     attr(file,'source_url',payload.url);attr(file,'recording',payload.meta);attr(file,'settings',payload.settings);
     attr(file,'timing','Reconstructed seconds since file start; not measured recording timing.');
-    attr(file,'noise_reference','Raw quiet I/Q, not complex-mean-subtracted; events independently mean-subtracted per RX.');
+    attr(file,'noise_reference','Raw full-sample-bandwidth E[|I+iQ|^2] and receiver covariance; matched noise power = sample noise power times template energy. Events independently mean-subtracted per RX.');
     attr(file,'coverage','All completed train estimates and beamforming results. Full matched-filter bank and voltage fit for current displayed train.');
     const history=file.create_group('history'),points=payload.points,N=points.length;
     if(N){
@@ -42,7 +42,7 @@ export async function writeAnalysis(h5,payload) {
     }
     if(payload.result){
       const r=payload.result,g=file.create_group('current_match');
-      for(const key of ['start','pulses','period','midpoint','model','grid','radialSpec','backend','seconds','searchReceivers'])if(r[key]!==undefined)attr(g,key,r[key]);
+      for(const key of ['start','pulses','period','midpoint','model','grid','radialSpec','backend','seconds','searchReceivers','noiseModel','noiseSamples','noisePower'])if(r[key]!==undefined)attr(g,key,r[key]);
       for(const key of ['best','cube','nodes','observed','fit','scanResults'])if(r[key])dataset(g,key,r[key],key==='observed'||key==='fit'?[r[key].length/2,2]:undefined,key==='cube'?'<f':'<d');
       if(r.fit&&r.observed)dataset(g,'residual',Array.from(r.observed,(v,i)=>v-r.fit[i]),[r.fit.length/2,2]);
       attr(g,'cube_order','Flattened (range, acceleration, velocity) for radial search; use radialSpec dimensions and grid bounds.');

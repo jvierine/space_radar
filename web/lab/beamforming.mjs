@@ -1,4 +1,4 @@
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009export8';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009noisepower9';
 export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.
@@ -35,7 +35,22 @@ export function refinePhases(objective, start, step, maxIterations = 500) {
   return {phases:best.x.map(v=>((v%(2*Math.PI))+2*Math.PI)%(2*Math.PI)),peak:best.value,iterations,evaluations,converged};
 }
 
-export function receiverGrowth(event, noise, phases, steps=10) {
+function quietEnergy(noise,covariance,count,phases) {
+  if(covariance){
+    let value=0;
+    for(let a=0;a<count;a++)for(let b=0;b<count;b++){
+      const phase=phases[a]-phases[b],i=2*(4*a+b);
+      value+=Math.cos(phase)*covariance[i]-Math.sin(phase)*covariance[i+1];
+    }
+    return Math.max(0,value/count);
+  }
+  return noise.reduce((total,z)=>{
+    let re=0,im=0;
+    for(let a=0;a<count;a++){const c=Math.cos(phases[a]),s=Math.sin(phases[a]);re+=c*z[2*a]-s*z[2*a+1];im+=s*z[2*a]+c*z[2*a+1];}
+    return total+(re*re+im*im)/count;
+  },0)/noise.length;
+}
+export function receiverGrowth(event, noise, phases, steps=10,covariance=null) {
   const energy=(z,count,weights)=>{
     let re=0,im=0;
     for(let a=0;a<count;a++) {
@@ -47,7 +62,7 @@ export function receiverGrowth(event, noise, phases, steps=10) {
   const rows=[];
   for(let count=1;count<=4;count++) {
     const objective=weights=>{
-      const reference=noise.reduce((total,z)=>total+energy(z,count,weights),0)/noise.length;
+      const reference=quietEnergy(noise,covariance,count,weights);
       return reference>0?energy(event,count,weights)/reference:-Infinity;
     };
     let weights=phases.slice(0,count),score=objective(weights);
@@ -60,7 +75,7 @@ export function receiverGrowth(event, noise, phases, steps=10) {
       const refined=refinePhases(x=>objective([0,...x]),start,Math.PI/steps);
       weights=[0,...refined.phases];score=refined.peak;
     }
-    const a=count-1,individualReference=noise.reduce((s,z)=>s+z[2*a]**2+z[2*a+1]**2,0)/noise.length;
+    const a=count-1,individualReference=covariance?covariance[2*(4*a+a)]:noise.reduce((s,z)=>s+z[2*a]**2+z[2*a+1]**2,0)/noise.length;
     const individual=(event[2*a]**2+event[2*a+1]**2)/individualReference;
     const gain=count>1?score/rows[count-2].score:null;
     const idealGain=count>1?1+individual/rows[count-2].score:null;
@@ -69,9 +84,9 @@ export function receiverGrowth(event, noise, phases, steps=10) {
   return rows;
 }
 
-export function phaseSearch(event, noise, steps = 10) {
-  if (!Number.isInteger(steps) || steps < 2 || steps > 32 || event.length !== 8 || noise.length < 8)
-    throw Error('Need four receivers, at least eight quiet trains, and 2–32 phase steps.');
+export function phaseSearch(event, noise, steps = 10,covariance=null) {
+  if (!Number.isInteger(steps) || steps < 2 || steps > 32 || event.length !== 8 || (!covariance&&noise.length<1))
+    throw Error('Need four receivers, a raw background noise estimate, and 2–32 phase steps.');
   const projections = Array.from({length:3},()=>new Float32Array(steps ** 2).fill(-Infinity));
   const sum = (z, phases) => {
     let re=0,im=0;
@@ -84,7 +99,7 @@ export function phaseSearch(event, noise, steps = 10) {
   let peak=-Infinity, best=null;
   for(let i=0;i<steps;i++) for(let j=0;j<steps;j++) for(let k=0;k<steps;k++) {
     const phases=[0,i*2*Math.PI/steps,j*2*Math.PI/steps,k*2*Math.PI/steps];
-    const reference=noise.reduce((total,z)=>total+sum(z,phases),0)/noise.length;
+    const reference=quietEnergy(noise,covariance,4,phases);
     const score=reference>0?sum(event,phases)/reference:NaN;
     const db=10*Math.log10(score);
     if(Number.isFinite(db)) {
@@ -97,26 +112,26 @@ export function phaseSearch(event, noise, steps = 10) {
   if(!best)throw Error('No finite beam score: quiet matched power is zero.');
   const channelPower=Array.from({length:4},(_,a)=>{
     const power=z=>z[2*a]**2+z[2*a+1]**2;
-    const observed=power(event),quiet=noise.reduce((s,z)=>s+power(z),0)/noise.length;
+    const observed=power(event),quiet=covariance?covariance[2*(4*a+a)]:noise.reduce((s,z)=>s+power(z),0)/noise.length;
     return {observed,quiet};
   });
   const single=channelPower.map(p=>p.observed/p.quiet);
   const gridPeak=peak,gridPhases=[...best.phases],gridReference=best.reference;
   const refinement=refinePhases(phases=>{
     const all=[0,...phases];
-    const reference=noise.reduce((total,z)=>total+sum(z,all),0)/noise.length;
+    const reference=quietEnergy(noise,covariance,4,all);
     return reference>0?sum(event,all)/reference:-Infinity;
   },best.phases.slice(1),Math.PI/steps);
   const phases=[0,...refinement.phases];
-  const reference=noise.reduce((total,z)=>total+sum(z,phases),0)/noise.length;
+  const reference=quietEnergy(noise,covariance,4,phases);
   const singleAverage=single.reduce((total,v)=>total+v,0)/4;
   const totalGain=refinement.peak/singleAverage;
-  return {steps,indices:best.indices,peak:refinement.peak,phases,reference,
-    gridPeak,gridPhases,gridReference,refinement:{iterations:refinement.iterations,evaluations:refinement.evaluations,converged:refinement.converged},single,channelPower,projections,growth:receiverGrowth(event,noise,phases,steps),total:{singleAverage,gain:totalGain,idealGain:4,percentIdeal:100*totalGain/4}};
+  return {noiseModel:covariance?"raw full-bandwidth sample covariance":"quiet matched power",steps,indices:best.indices,peak:refinement.peak,phases,reference,
+    gridPeak,gridPhases,gridReference,refinement:{iterations:refinement.iterations,evaluations:refinement.evaluations,converged:refinement.converged},single,channelPower,projections,growth:receiverGrowth(event,noise,phases,steps,covariance),total:{singleAverage,gain:totalGain,idealGain:4,percentIdeal:100*totalGain/4}};
 }
 
-export function projectReceivers(receivers, q, {samples, rows, perFrame, start, pulses, bgStart, bgStop, noiseStart, noiseStop, conjugated}) {
-  const {means,meanCounts,referenceStarts}=prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop});
+export function projectReceivers(receivers, q, {samples, rows, perFrame, start, pulses, bgStart, bgStop, noiseStart, noiseStop, conjugated,fullBandwidth=false}) {
+  const {means,meanCounts,referenceStarts,noiseCovariance}=prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop,fullBandwidth});
   const project=(k,subtractMean=true)=>{
     const out=new Float64Array(8);
     for(let a=0;a<4;a++)for(let n=0;n<pulses;n++)for(let j=0;j<samples;j++){
@@ -127,5 +142,6 @@ export function projectReceivers(receivers, q, {samples, rows, perFrame, start, 
     }
     return out;
   };
-  return {event:project(start),noise:referenceStarts.map(k=>project(k,false)),referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
+  const energy=q.reduce((sum,v)=>sum+v*v,0);
+  return {event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
 }
