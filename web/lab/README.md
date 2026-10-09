@@ -110,3 +110,10 @@ original data import: `tools/prepare_lab_data.py`.
 
 Platform references: [Rust wasm32 target](https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html),
 [WebGL texture upload](https://developer.mozilla.org/en-US/docs/Web/API/WebGLRenderingContext/texImage2D).
+
+All three maps label the gold coherent-integration interval. The best-fit
+voltage is followed by the continuous geometric slant range
+`R(t) = sqrt((v*t-x0)^2 + y0^2)` over the analyzed train. This is inferred
+from the fitted trajectory, not an independently measured range.
+The complex residual (background-subtracted measurement minus the fitted
+complex template, both Re and Im) appears immediately below the voltage fit.

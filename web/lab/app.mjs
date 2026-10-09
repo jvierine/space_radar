@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009e";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009g";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009e", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009g", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -63,6 +63,8 @@ function bands() {
       stop: state.chirp + state.pulses,
       color: "#f1cf7433",
       line: "#f1cf74",
+      label: `Coherent integration · ${state.pulses} chirps`,
+      strong: true,
     },
   ];
 }
@@ -80,6 +82,8 @@ const maps = [
 const iq = new LinePlot("iqPlot"),
   spectrum = new LinePlot("spectrumPlot"),
   fit = new LinePlot("fitPlot"),
+  rangePlot = new LinePlot("rangePlot"),
+  residualPlot = new LinePlot("residualPlot"),
   scan = new LinePlot("scanPlot", (k) => selectChirp(Math.round(k)));
 for (const map of maps)
   map.enableWindow({
@@ -159,6 +163,8 @@ function invalidate() {
   vx.root.style.display = "none";
   vy.root.style.display = "none";
   fit.root.style.display = "none";
+  rangePlot.root.style.display = "none";
+  residualPlot.root.style.display = "none";
   scan.root.style.display = "none";
   $("compareResults").innerHTML = "";
   $("matchSummary").textContent =
@@ -398,7 +404,8 @@ function showMatch(r) {
     `${r.pulses} pulses · chirps ${r.start}–${r.start + r.pulses - 1} · peak ${peak.toFixed(2)} dB · x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s · ${noiseCount} noise-reference trains · ${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)} µs sampled / ${((r.pulses - 1) * r.period * 1e6 + (meta.samples / meta.parameters.fs) * 1e6).toFixed(2)} µs elapsed${overlap ? " · selected train overlaps the mean-estimation interval" : ""}`;
   const xx = [],
     obs = [],
-    model = [];
+    model = [],
+    residualImag = [];
   for (let k = 0; k < r.pulses; k++) {
     for (let j = 0; j < meta.samples; j++) {
       xx.push(
@@ -406,6 +413,10 @@ function showMatch(r) {
       );
       obs.push(r.observed[2 * (k * meta.samples + j)]);
       model.push(r.fit[2 * (k * meta.samples + j)]);
+      residualImag.push(
+        r.observed[2 * (k * meta.samples + j) + 1] -
+          r.fit[2 * (k * meta.samples + j) + 1],
+      );
     }
     if (k < r.pulses - 1) {
       xx.push(
@@ -416,6 +427,7 @@ function showMatch(r) {
       );
       obs.push(NaN);
       model.push(NaN);
+      residualImag.push(NaN);
     }
   }
   fit.set(
@@ -434,6 +446,53 @@ function showMatch(r) {
       x1: xx.at(-1),
       xLabel: "Time from train ramp start (µs; gaps are unsampled)",
       yLabel: "ADC counts",
+    },
+  );
+  residualPlot.set(
+    [
+      {
+        name: "Residual Re: data − fit",
+        color: "#f1cf74",
+        x: xx,
+        y: Float64Array.from(obs, (value, i) => value - model[i]),
+      },
+      { name: "Residual Im", color: "#57d8c0", x: xx, y: residualImag },
+    ],
+    {
+      x0: xx[0],
+      x1: xx.at(-1),
+      xLabel: "Time from train ramp start (µs; gaps are unsampled)",
+      yLabel: "Residual (ADC counts)",
+    },
+  );
+  const rangeTime = Float64Array.from(
+    { length: 301 },
+    (_, i) => xx[0] + ((xx.at(-1) - xx[0]) * i) / 300,
+  );
+  const ranges = Float64Array.from(rangeTime, (t) =>
+    Math.hypot(v * t * 1e-6 - x, y),
+  );
+  const minRange = Math.min(...ranges),
+    maxRange = Math.max(...ranges);
+  const rangePad = Math.max(0.0001, (maxRange - minRange) * 0.08);
+  rangePlot.set(
+    [
+      {
+        name: "Best-fit slant range R(t)",
+        color: "#f1cf74",
+        x: rangeTime,
+        y: ranges,
+        width: 1.7,
+      },
+    ],
+    {
+      x0: xx[0],
+      x1: xx.at(-1),
+      y0: minRange - rangePad,
+      y1: maxRange + rangePad,
+      xLabel: "Time from train ramp start (µs; continuous trajectory)",
+      yLabel: "Slant range (m)",
+      decimals: 3,
     },
   );
   if (r.scanResults) {

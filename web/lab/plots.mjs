@@ -314,15 +314,38 @@ export class Heatmap {
         b = Math.min(c.x1, band.stop);
       if (b <= a) continue;
       ctx.fillStyle = band.color;
-      ctx.fillRect(xp(a), top, xp(b) - xp(a), height);
+      ctx.fillRect(
+        xp(a),
+        top,
+        Math.max(band.strong ? 2 : 0, xp(b) - xp(a)),
+        height,
+      );
       ctx.strokeStyle = band.line ?? band.color;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = band.strong ? 2 : 1;
       ctx.beginPath();
       ctx.moveTo(xp(a), top);
       ctx.lineTo(xp(a), top + height);
       ctx.moveTo(xp(b), top);
       ctx.lineTo(xp(b), top + height);
       ctx.stroke();
+      if (band.label) {
+        const labelWidth = ctx.measureText(band.label).width + 12;
+        const center = Math.max(
+          left + labelWidth / 2,
+          Math.min(left + width - labelWidth / 2, (xp(a) + xp(b)) / 2),
+        );
+        ctx.fillStyle = "#0c1923e8";
+        ctx.fillRect(
+          center - labelWidth / 2,
+          top + height - 25,
+          labelWidth,
+          20,
+        );
+        ctx.fillStyle = band.line;
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(band.label, center, top + height - 15);
+      }
     }
     if (c.frames) {
       ctx.strokeStyle = "#b6c9d344";
