@@ -186,7 +186,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009radial1"),
+        fetch("core.wasm?v=20261009brush2"),
         {},
       );
       wasm = result.instance.exports;

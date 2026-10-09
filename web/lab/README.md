@@ -120,8 +120,19 @@ complex template, both Re and Im) appears immediately below the voltage fit.
 
 The measurement zoom slider starts at the full recording and zooms around the
 coherent train midpoint; selecting another train recenters an active zoom.
+Drag a rectangle in empty colormesh space to zoom. Measurement plots share
+the horizontal chirp interval; voltage plots share the fast-time interval.
+Background bodies, labels, and resize edges and coherent-window bodies and
+labels keep their existing drag actions. Reset full view restores the recording
+and vertical axes. Matched-filter and antenna-phase maps have local reset buttons.
+
+The antenna-phase search refines its best discrete cell with Nelder–Mead over
+the three relative receiver phases, with RX0 fixed at zero. Both stages use
+the same background-referenced matched-energy ratio and quiet trains. The
+reported phases and peak are refined; the projection remains the discrete
+grid, and the table reports both peaks.
 Manual bounds and other view buttons retain custom views. Matched-filter maps
-always show the complete configured search grid and mark its global peak
+initially show the complete configured search grid and mark its global peak
 with a cross; radial FFT screening peaks and directly verified fits are
 labeled separately. Colour maxima equal the actual plotted grid peak.
 The yellow integration window is draggable on all three measurement maps.

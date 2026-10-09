@@ -1,5 +1,37 @@
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.
+// Local simplex coordinates are unwrapped so centroids remain continuous at 0/2π.
+// Only the returned phases are wrapped; the objective itself is periodic.
+export function refinePhases(objective, start, step, maxIterations = 500) {
+  let evaluations=0;
+  const vertex=x=>({x,value:objective(x)});
+  const evaluate=x=>{evaluations++;return vertex(x);};
+  let simplex=[evaluate([...start]),...start.map((_,j)=>evaluate(start.map((v,i)=>v+(i===j?step:0))))];
+  let iterations=0,converged=false;
+  for(;iterations<maxIterations;iterations++) {
+    simplex.sort((a,b)=>b.value-a.value);
+    const diameter=Math.max(...simplex.slice(1).map(v=>Math.hypot(...v.x.map((x,j)=>x-simplex[0].x[j]))));
+    const spread=Math.abs(simplex[0].value-simplex[3].value);
+    if(diameter<1e-6 && spread<1e-10*Math.max(1,Math.abs(simplex[0].value))){converged=true;break;}
+    const centre=start.map((_,j)=>(simplex[0].x[j]+simplex[1].x[j]+simplex[2].x[j])/3);
+    const worst=simplex[3];
+    const reflected=evaluate(centre.map((x,j)=>2*x-worst.x[j]));
+    if(reflected.value>simplex[0].value) {
+      const expanded=evaluate(centre.map((x,j)=>x+2*(reflected.x[j]-x)));
+      simplex[3]=expanded.value>reflected.value?expanded:reflected;
+    } else if(reflected.value>simplex[2].value) simplex[3]=reflected;
+    else {
+      const outside=reflected.value>worst.value;
+      const contracted=evaluate(centre.map((x,j)=>x+0.5*((outside?reflected.x[j]:worst.x[j])-x)));
+      if(contracted.value>(outside?reflected.value:worst.value))simplex[3]=contracted;
+      else simplex=simplex.map((v,i)=>i===0?v:evaluate(v.x.map((x,j)=>simplex[0].x[j]+0.5*(x-simplex[0].x[j]))));
+    }
+  }
+  simplex.sort((a,b)=>b.value-a.value);
+  const best=simplex[0];
+  return {phases:best.x.map(v=>((v%(2*Math.PI))+2*Math.PI)%(2*Math.PI)),peak:best.value,iterations,evaluations,converged};
+}
+
 export function phaseSearch(event, noise, steps = 10) {
   if (!Number.isInteger(steps) || steps < 2 || steps > 32 || event.length !== 8 || noise.length < 8)
     throw Error('Need four receivers, at least eight quiet trains, and 2–32 phase steps.');
@@ -28,7 +60,16 @@ export function phaseSearch(event, noise, steps = 10) {
     const power=z=>z[2*a]**2+z[2*a+1]**2;
     return power(event)/(noise.reduce((s,z)=>s+power(z),0)/noise.length);
   });
-  return {steps,peak, ...best, single, projection};
+  const gridPeak=peak,gridPhases=[...best.phases],gridReference=best.reference;
+  const refinement=refinePhases(phases=>{
+    const all=[0,...phases];
+    const reference=noise.reduce((total,z)=>total+sum(z,all),0)/noise.length;
+    return reference>0?sum(event,all)/reference:-Infinity;
+  },best.phases.slice(1),Math.PI/steps);
+  const phases=[0,...refinement.phases];
+  const reference=noise.reduce((total,z)=>total+sum(z,phases),0)/noise.length;
+  return {steps,indices:best.indices,peak:refinement.peak,phases,reference,
+    gridPeak,gridPhases,gridReference,refinement:{iterations:refinement.iterations,evaluations:refinement.evaluations,converged:refinement.converged},single,projection};
 }
 
 export function commonValid(receivers, samples, rows) {

@@ -19,3 +19,19 @@ assert.deepEqual([...p.event],[10,0,20,0,30,0,40,0]);assert.equal(p.meanCount,2)
 receivers[3].fill(0,2*25*samples,2*26*samples);
 assert.throws(()=>projectReceivers(receivers,q,{samples,rows,perFrame:30,start:25,pulses:1,bgStart:0,bgStop:2,noiseStart:2,noiseStop:24}),/not intact/);
 console.log('PASS: known phase recovery, 6.02 dB independent-noise gain, correlated-noise normalization, per-RX background means, common padding rejection');
+
+// Off-grid phases and a solution straddling the periodic boundary.
+const planted=[0,.11,2.3,2*Math.PI-.023];
+const offGrid=Float64Array.from(planted.flatMap(p=>[2*Math.cos(p),2*Math.sin(p)]));
+const refined=phaseSearch(offGrid,independent,10);
+assert.ok(refined.refinement.converged);
+assert.ok(refined.peak>=refined.gridPeak);
+assert.ok(refined.peak>refined.gridPeak+.01,'Off-grid peak must improve');
+for(let j=1;j<4;j++)assert.ok(Math.abs(Math.atan2(Math.sin(refined.phases[j]+planted[j]),Math.cos(refined.phases[j]+planted[j])))<1e-5);
+assert.ok(Math.abs(refined.peak-16)<1e-9);
+const combined=z=>{
+ let re=0,im=0;for(let j=0;j<4;j++){const c=Math.cos(refined.phases[j])/2,s=Math.sin(refined.phases[j])/2;re+=c*z[2*j]-s*z[2*j+1];im+=s*z[2*j]+c*z[2*j+1];}
+ return re*re+im*im;
+};
+assert.ok(Math.abs(refined.peak-combined(offGrid)/(independent.reduce((s,z)=>s+combined(z),0)/independent.length))<1e-10);
+console.log('PASS: Nelder–Mead improves the off-grid peak, recovers wrapped phases, and preserves the quiet-referenced statistic');

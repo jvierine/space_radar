@@ -358,3 +358,14 @@ footer {
   color: #f1cf74;
   border-color: #f1cf74;
 }
+
+.heatmap .pixels { touch-action: none; cursor: crosshair; }
+.plot-zoom-box {
+  position: absolute;
+  z-index: 4;
+  border: 1px solid #57d8c0;
+  background: #57d8c025;
+  pointer-events: none;
+}
+.plot-zoom-box[hidden], .plot-reset[hidden] { display: none; }
+.plot-reset { font-size: 12px; padding: 4px 8px; margin: 0 0 8px 74px; }

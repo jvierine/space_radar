@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009k";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009brush2";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009radial1", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009brush2", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -130,6 +130,17 @@ for (const map of maps)
       if (repeatSearch) run();
     },
   });
+for (const [index,map] of maps.entries()) map.enableZoom({
+  enabled:()=>loaded && !busy,
+  reset:false,
+  onZoom:bounds=>{
+    const targets=index<2?maps.slice(0,2):[maps[2]];
+    for(const target of targets)target.zoomTo({y0:bounds.y0,y1:bounds.y1});
+    $('viewStart').value=Math.max(0,Math.floor(bounds.x0));
+    $('viewStop').value=Math.min(meta.total_chirps-1,Math.ceil(bounds.x1)-1);
+    customView();
+  },
+});
 function common() {
   return {
     x0: state.start,
@@ -421,6 +432,7 @@ function axis(lo, hi, n) {
 function showMatch(r) {
   window.dispatchEvent(new CustomEvent("fmcw-match", { detail: { meta, match: r } }));
   result = r;
+  vx.resetZoom();vy.resetZoom();
   state.pulses = r.pulses;
   state.chirp = r.start;
   $("chirp").value = r.start;
@@ -751,6 +763,7 @@ $("traceSub").onchange = updateSelection;
 $("full").onclick = safe(() => {
   clearTimeout(zoomTimer);
   $("zoom").value = 0;
+  for(const plot of [...maps,vx,vy])plot.resetZoom();
   applyCenteredZoom();
 });
 $("frame").onclick = safe(() => {

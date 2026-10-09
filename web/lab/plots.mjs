@@ -48,7 +48,7 @@ export class Heatmap {
     }));
     if (!gl) throw Error("WebGL2 is required for the data maps.");
     const vs = `#version 300 es\nin vec2 p;out vec2 uv;void main(){uv=(p+1.)/2.;gl_Position=vec4(p,0.,1.);}`;
-    const fs = `#version 300 es\nprecision highp float;uniform sampler2D image;uniform float lo,hi;uniform int kind;in vec2 uv;out vec4 color;vec3 magma(float x){vec3 a=vec3(9,12,27)/255.;vec3 b=vec3(68,28,94)/255.;vec3 c=vec3(164,46,87)/255.;vec3 d=vec3(237,115,78)/255.;vec3 e=vec3(249,237,164)/255.;return x<.25?mix(a,b,x*4.):x<.5?mix(b,c,(x-.25)*4.):x<.75?mix(c,d,(x-.5)*4.):mix(d,e,(x-.75)*4.);}void main(){float v=texture(image,uv).r;if(isnan(v)||isinf(v)){color=vec4(.24,.29,.32,1.);return;}float x=clamp((v-lo)/(hi-lo),0.,1.);vec3 c=kind==0?(x<.5?mix(vec3(37,91,139)/255.,vec3(242,242,231)/255.,x*2.):mix(vec3(242,242,231)/255.,vec3(189,74,40)/255.,(x-.5)*2.)):magma(x);color=vec4(c,1.);}`;
+    const fs = `#version 300 es\nprecision highp float;uniform sampler2D image;uniform float lo,hi;uniform int kind;uniform vec4 sourceRect;in vec2 uv;out vec4 color;vec3 magma(float x){vec3 a=vec3(9,12,27)/255.;vec3 b=vec3(68,28,94)/255.;vec3 c=vec3(164,46,87)/255.;vec3 d=vec3(237,115,78)/255.;vec3 e=vec3(249,237,164)/255.;return x<.25?mix(a,b,x*4.):x<.5?mix(b,c,(x-.25)*4.):x<.75?mix(c,d,(x-.5)*4.):mix(d,e,(x-.75)*4.);}void main(){float v=texture(image,mix(sourceRect.xy,sourceRect.zw,uv)).r;if(isnan(v)||isinf(v)){color=vec4(.24,.29,.32,1.);return;}float x=clamp((v-lo)/(hi-lo),0.,1.);vec3 c=kind==0?(x<.5?mix(vec3(37,91,139)/255.,vec3(242,242,231)/255.,x*2.):mix(vec3(242,242,231)/255.,vec3(189,74,40)/255.,(x-.5)*2.)):magma(x);color=vec4(c,1.);}`;
     const compile = (type, source) => {
       const shader = gl.createShader(type);
       gl.shaderSource(shader, source);
@@ -81,6 +81,7 @@ export class Heatmap {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     this.pixels.onclick = (e) => {
+      if(this.suppressClick){this.suppressClick=false;return;}
       if (!this.config || !onSelect) return;
       const r = this.pixels.getBoundingClientRect();
       onSelect(
@@ -88,7 +89,79 @@ export class Heatmap {
           ((e.clientX - r.left) / r.width) * (this.config.x1 - this.config.x0),
       );
     };
+    this.enableZoom();
     new ResizeObserver(() => this.draw()).observe(this.root);
+  }
+  enableZoom(options = {}) {
+    this.zoomOptions = options;
+    if(this.zoomBox) {this.updateResetButton();return;}
+    this.zoomBox=document.createElement('div');
+    this.zoomBox.className='plot-zoom-box';this.zoomBox.hidden=true;
+    this.root.append(this.zoomBox);
+    this.resetButton=document.createElement('button');
+    this.resetButton.type='button';this.resetButton.className='plot-reset';
+    this.resetButton.textContent='Reset plot view';this.resetButton.hidden=true;
+    this.resetButton.onclick=()=>this.resetZoom();this.root.after(this.resetButton);
+    this.pixels.tabIndex=0;
+    this.pixels.setAttribute('aria-label','Drag a region to zoom; click to select a chirp');
+    const point=event=>{
+      const r=this.pixels.getBoundingClientRect();
+      return [Math.max(0,Math.min(1,(event.clientX-r.left)/r.width)),Math.max(0,Math.min(1,(event.clientY-r.top)/r.height))];
+    };
+    this.pixels.addEventListener('pointerdown',event=>{
+      if(event.button!==0 || !this.config || this.zoomOptions.enabled?.()===false)return;
+      event.preventDefault();window.getSelection()?.removeAllRanges();
+      this.pixels.focus({preventScroll:true});this.suppressClick=false;
+      this.brush={pointer:event.pointerId,start:point(event),end:point(event)};
+      document.documentElement.classList.add('plot-window-dragging');
+      this.pixels.setPointerCapture(event.pointerId);
+    });
+    this.pixels.addEventListener('pointermove',event=>{
+      if(!this.brush || this.brush.pointer!==event.pointerId)return;
+      event.preventDefault();this.brush.end=point(event);
+      const [x,y]=this.brush.start,[xx,yy]=this.brush.end;
+      const r=this.pixels.getBoundingClientRect();
+      this.zoomBox.hidden=false;
+      Object.assign(this.zoomBox.style,{left:`${74+Math.min(x,xx)*r.width}px`,top:`${37+Math.min(y,yy)*r.height}px`,width:`${Math.abs(x-xx)*r.width}px`,height:`${Math.abs(y-yy)*r.height}px`});
+    });
+    const finish=(event,cancelled=false)=>{
+      const brush=this.brush;
+      if(!brush || event.pointerId!==brush.pointer)return;
+      this.brush=null;this.zoomBox.hidden=true;
+      document.documentElement.classList.remove('plot-window-dragging');
+      if(this.pixels.hasPointerCapture(event.pointerId))this.pixels.releasePointerCapture(event.pointerId);
+      const rect=this.pixels.getBoundingClientRect();
+      const dx=Math.abs(brush.start[0]-brush.end[0])*rect.width,dy=Math.abs(brush.start[1]-brush.end[1])*rect.height;
+      if(cancelled){this.suppressClick=true;return;}
+      if(dx<6 && dy<6)return;
+      this.suppressClick=true;
+      const c=this.config;
+      const xs=dx<6?[0,1]:[Math.min(brush.start[0],brush.end[0]),Math.max(brush.start[0],brush.end[0])];
+      const ys=dy<6?[0,1]:[1-Math.max(brush.start[1],brush.end[1]),1-Math.min(brush.start[1],brush.end[1])];
+      const bounds={x0:c.x0+xs[0]*(c.x1-c.x0),x1:c.x0+xs[1]*(c.x1-c.x0),y0:c.y0+ys[0]*(c.y1-c.y0),y1:c.y0+ys[1]*(c.y1-c.y0)};
+      if(this.zoomOptions.onZoom)this.zoomOptions.onZoom(bounds);
+      else this.zoomTo(bounds);
+    };
+    this.pixels.addEventListener('pointerup',event=>finish(event));
+    this.pixels.addEventListener('pointercancel',event=>finish(event,true));
+    this.pixels.addEventListener('lostpointercapture',event=>finish(event,true));
+    this.pixels.addEventListener('keydown',event=>{
+      if(event.key==='Escape' && this.brush){event.preventDefault();finish({pointerId:this.brush.pointer},true);}
+    });
+  }
+  updateResetButton() {
+    if(this.resetButton)this.resetButton.hidden=this.zoomOptions.reset===false || !this.viewport;
+  }
+  zoomTo(bounds) {
+    if(!this.baseConfig)return;
+    this.viewport={...this.viewport,...bounds};
+    this.config={...this.baseConfig,...this.viewport};
+    this.updateResetButton();this.draw();
+  }
+  resetZoom() {
+    this.viewport=null;
+    if(this.baseConfig)this.config={...this.baseConfig};
+    this.updateResetButton();this.draw();
   }
   enableWindow(options) {
     const band = document.createElement("div");
@@ -245,7 +318,9 @@ export class Heatmap {
       throw Error(
         "This view exceeds the GPU texture limit. Shorten the chirp interval.",
       );
-    this.config = config;
+    this.baseConfig = {...config};
+    this.config = {...config,...this.viewport};
+    this.updateResetButton();
     this.values = values;
     this.width = width;
     this.height = height;
@@ -266,6 +341,7 @@ export class Heatmap {
   }
   overlay(config) {
     if (this.config) {
+      Object.assign(this.baseConfig, config);
       Object.assign(this.config, config);
       this.draw();
     }
@@ -291,6 +367,10 @@ export class Heatmap {
       gl.getUniformLocation(this.program, "kind"),
       this.config.kind || 0,
     );
+    const c0=this.baseConfig,c1=this.config;
+    gl.uniform4f(gl.getUniformLocation(this.program,'sourceRect'),
+      (c1.x0-c0.x0)/(c0.x1-c0.x0),(c1.y0-c0.y0)/(c0.y1-c0.y0),
+      (c1.x1-c0.x0)/(c0.x1-c0.x0),(c1.y1-c0.y0)/(c0.y1-c0.y0));
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     const ctx = sizeCanvas(this.axes, W, H);
     ctx.clearRect(0, 0, W, H);
@@ -390,8 +470,11 @@ export class Heatmap {
       }
     }
     if (c.marker) {
-      const mx = left + ((c.marker.column + 0.5) / this.width) * width;
-      const my = top + (1 - (c.marker.row + 0.5) / this.height) * height;
+      const source=this.baseConfig;
+      const markerX=source.x0+(c.marker.column+0.5)/this.width*(source.x1-source.x0);
+      const markerY=source.y0+(c.marker.row+0.5)/this.height*(source.y1-source.y0);
+      const mx=xp(markerX);
+      const my=top+(1-(markerY-c.y0)/(c.y1-c.y0))*height;
       ctx.save();
       ctx.beginPath();
       ctx.rect(left, top, width, height);

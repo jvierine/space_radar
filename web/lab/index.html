@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Coherent FMCW radar processing</title>
-    <link rel="stylesheet" href="style.css?v=20261009k" />
+    <link rel="stylesheet" href="style.css?v=20261009brush2" />
   </head>
   <body>
     <header>
@@ -92,7 +92,7 @@
         <div class="section-head">
           <h2>Slow time × fast time</h2>
           <div class="actions">
-            <button id="full">Full recording</button
+            <button id="full">Reset full view</button
             ><button id="frame">Selected frame</button
             ><button id="around">Around selection</button
             ><button id="zoomBackground">Zoom to background</button>
@@ -154,7 +154,7 @@
         <p class="note">
           Drag the blue Background window on any of the three colour plots to
           move it; drag its edges to resize. The complex mean updates when you
-          release. Click elsewhere to select a chirp. Drag the yellow
+          release. Drag a rectangle in empty plot space to zoom; a click selects a chirp. Reset full view restores all three plots. Drag the yellow
           coherent-integration window to move the filter train; blue marks the
           quiet mean; cyan marks the noise reference. Grey columns have
           padding/nonfinite samples and are excluded from spectra and filtering.
@@ -345,7 +345,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009radial1"></script>
-    <script type="module" src="beam-ui.mjs?v=20261009radial1"></script>
+    <script type="module" src="app.mjs?v=20261009brush2"></script>
+    <script type="module" src="beam-ui.mjs?v=20261009brush2"></script>
   </body>
 </html>
