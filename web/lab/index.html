@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Coherent FMCW radar processing</title>
-    <link rel="stylesheet" href="style.css?v=20261009brush2" />
+    <link rel="stylesheet" href="style.css?v=20261009time1" />
   </head>
   <body>
     <header>
@@ -239,9 +239,9 @@
             <tr>
               <th id="axisR">r₀ (m)</th>
               <td>
-                <input id="xMin" type="number" value="0.05" step="0.01" />
+                <input id="xMin" type="number" value="0.001" step="0.001" />
               </td>
-              <td><input id="xMax" type="number" value="0.7" step="0.01" /></td>
+              <td><input id="xMax" type="number" value="3" step="0.01" /></td>
               <td>
                 <input id="xN" type="number" value="31" min="1" max="201" />
               </td>
@@ -270,8 +270,8 @@
             </tr>
             <tr>
               <th id="axisV">v₀ (m/s)</th>
-              <td><input id="vMin" type="number" value="-400" step="10" /></td>
-              <td><input id="vMax" type="number" value="400" step="10" /></td>
+              <td><input id="vMin" type="number" value="-900" step="10" /></td>
+              <td><input id="vMax" type="number" value="900" step="10" /></td>
               <td>
                 <input id="vN" type="number" value="41" min="1" max="301" />
               </td>
@@ -345,7 +345,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009search3"></script>
-    <script type="module" src="beam-ui.mjs?v=20261009brush2"></script>
+    <script type="module" src="app.mjs?v=20261009time1"></script>
+    <script type="module" src="beam-ui.mjs?v=20261009time1"></script>
   </body>
 </html>

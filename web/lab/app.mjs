@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009brush2";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009time1";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009brush2", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009time1", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -12,7 +12,6 @@ let meta,
   fftPeak = 1,
   result,
   compareResults = [],
-  clockBase,
   zoomTimer,
   centeredZoom = true;
 const state = { start: 0, stop: 6250, chirp: 625, pulses: 8, rx: 0 };
@@ -47,7 +46,7 @@ function clock(chirp) {
     frame = Math.floor(k / meta.chirps_per_frame),
     within = k % meta.chirps_per_frame;
   const elapsed = frame * framePeriod + within * period + meta.parameters.T_adc;
-  return (clockBase / 1000 + elapsed).toFixed(6);
+  return elapsed.toFixed(6);
 }
 function bands() {
   return [
@@ -67,7 +66,7 @@ function bands() {
       start: state.chirp,
       stop: state.chirp + state.pulses,
       color: "#f1cf7433",
-      line: "#f1cf74",
+      line: "#b45c00",
       strong: true,
     },
   ];
@@ -149,7 +148,7 @@ function common() {
     y1: (meta.parameters.T_adc + (meta.samples - 1) / meta.parameters.fs) * 1e6,
     xFormat: (x) => Math.min(state.stop - 1, Math.round(x)).toString(),
     topFormat: (x) => clock(Math.min(state.stop - 1, Math.round(x))),
-    topLabel: "Unix epoch seconds (reconstructed; UTC assumed)",
+    topLabel: "Time since file start (s; reconstructed)",
     xLabel: "Concatenated chirp number (frame gaps omitted)",
     yLabel: "Fast time from chirp ramp start (µs)",
     bands: bands(),
@@ -298,14 +297,14 @@ function trace(msg) {
       (_, j) => (meta.parameters.T_adc + j / meta.parameters.fs) * 1e6,
     ),
     offset = $("traceSub").checked ? 2 * n : 0;
-  const desc = `Global ${msg.chirp} · frame ${Math.floor(msg.chirp / meta.chirps_per_frame)}, chirp ${msg.chirp % meta.chirps_per_frame} · epoch seconds ${clock(msg.chirp)} (UTC assumed)${msg.valid ? "" : " · FLAGGED PADDING: excluded from filters/spectra"}`;
+  const desc = `Global ${msg.chirp} · frame ${Math.floor(msg.chirp / meta.chirps_per_frame)}, chirp ${msg.chirp % meta.chirps_per_frame} · time since file start ${clock(msg.chirp)} s (reconstructed)${msg.valid ? "" : " · FLAGGED PADDING: excluded from filters/spectra"}`;
   $("chirpInfo").textContent = desc;
   iq.set(
     [
-      { name: "Re", color: "#f1cf74", x, y: a.slice(offset, offset + n) },
+      { name: "Re", color: "#b45c00", x, y: a.slice(offset, offset + n) },
       {
         name: "Im",
-        color: "#57d8c0",
+        color: "#007c78",
         x,
         y: a.slice(offset + n, offset + 2 * n),
       },
@@ -320,7 +319,7 @@ function trace(msg) {
     [
       {
         name: "Original",
-        color: "#a2b6c2",
+        color: "#555555",
         x: fx,
         y: Float32Array.from(a.slice(4 * n, 4 * n + nf), (v) =>
           db(v / fftPeak),
@@ -328,7 +327,7 @@ function trace(msg) {
       },
       {
         name: "Quiet mean removed",
-        color: "#57d8c0",
+        color: "#007c78",
         x: fx,
         y: Float32Array.from(a.slice(4 * n + nf), (v) => db(v / fftPeak)),
       },
@@ -549,10 +548,10 @@ function showMatch(r) {
   }
   fit.set(
     [
-      { name: "Re: measured residual", color: "#9badb9", x: xx, y: obs },
+      { name: "Re: measured residual", color: "#555555", x: xx, y: obs },
       {
         name: "Re: fitted template",
-        color: "#f1cf74",
+        color: "#b45c00",
         x: xx,
         y: model,
         width: 1.7,
@@ -569,11 +568,11 @@ function showMatch(r) {
     [
       {
         name: "Residual Re: data − fit",
-        color: "#f1cf74",
+        color: "#b45c00",
         x: xx,
         y: Float64Array.from(obs, (value, i) => value - model[i]),
       },
-      { name: "Residual Im", color: "#57d8c0", x: xx, y: residualImag },
+      { name: "Residual Im", color: "#007c78", x: xx, y: residualImag },
     ],
     {
       x0: xx[0],
@@ -596,7 +595,7 @@ function showMatch(r) {
     [
       {
         name: "Best-fit slant range R(t)",
-        color: "#f1cf74",
+        color: "#b45c00",
         x: rangeTime,
         y: ranges,
         width: 1.7,
@@ -627,7 +626,7 @@ function showMatch(r) {
       [
         {
           name: r.radialSpec ? "Time scan: verified radial FFT candidates" : "Time scan: maximum over x₀, y₀, v and I/Q orientation",
-          color: "#57d8c0",
+          color: "#007c78",
           x: starts,
           y: ys,
         },
@@ -804,7 +803,7 @@ for (const id of [
   "phaseLoss",
 ])
   $(id).addEventListener("change", invalidate);
-const savedBounds={fft:[.05,.7,0,1000000,-400,400],direct:[-.6,.6,.05,.3,200,500]};
+const savedBounds={fft:[.001,3,0,1000000,-900,900],direct:[-.6,.6,.05,.3,200,500]};
 let activeMethod='fft';
 function methodUI() {
  const radial=$("algorithm").value==='fft';
@@ -831,7 +830,6 @@ try {
   });
   if (!response.ok) throw Error("Recording metadata unavailable");
   meta = await response.json();
-  clockBase = Date.parse(meta.recorded_clock + "Z");
   $("record").textContent =
     `Test 63 · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX`;
   $("viewStop").value = meta.total_chirps - 1;

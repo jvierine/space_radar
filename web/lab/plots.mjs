@@ -1,7 +1,30 @@
-const fg = "#a2b6c2",
-  grid = "#29414e",
-  gold = "#f1cf74",
-  teal = "#57d8c0";
+const fg = "#20252b",
+  grid = "#d5dce1",
+  gold = "#b45c00",
+  teal = "#007c78";
+let exportDensity=0;
+function addExport(plot,heatmap) {
+  const button=document.createElement('button');button.type='button';
+  button.className='plot-export';button.textContent='PNG ↓';button.title='Download figure on white background at 4× resolution';
+  plot.root.append(button);
+  button.onclick=()=>{
+    if(!plot.config)return;
+    try {
+      exportDensity=4;plot.draw();
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.round(plot.root.clientWidth*4);canvas.height=Math.round(plot.root.clientHeight*4);
+      const context=canvas.getContext('2d');context.fillStyle='#fff';context.fillRect(0,0,canvas.width,canvas.height);
+      if(heatmap){context.drawImage(plot.pixels,74*4,37*4);context.drawImage(plot.axes,0,0);}
+      else context.drawImage(plot.canvas,0,0);
+      canvas.toBlob(blob=>{
+        if(!blob)return;
+        const url=URL.createObjectURL(blob),link=document.createElement('a');
+        link.href=url;link.download=`fmcw-${plot.root.id}.png`;link.click();
+        setTimeout(()=>URL.revokeObjectURL(url),1000);
+      });
+    } finally {exportDensity=0;plot.draw();}
+  };
+}
 export const db = (x) => 10 * Math.log10(Math.max(x, 1e-30));
 const stops = [
   [0.0, [9, 12, 27]],
@@ -27,7 +50,7 @@ function diverging(t) {
   return a.map((v, i) => v * (1 - w) + b[i] * w);
 }
 function sizeCanvas(canvas, width, height) {
-  const dpr = Math.min(devicePixelRatio || 1, 2);
+  const dpr = exportDensity || Math.min(devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * dpr);
   canvas.height = Math.round(height * dpr);
   const ctx = canvas.getContext("2d");
@@ -90,6 +113,7 @@ export class Heatmap {
       );
     };
     this.enableZoom();
+    addExport(this,true);
     new ResizeObserver(() => this.draw()).observe(this.root);
   }
   enableZoom(options = {}) {
@@ -283,7 +307,7 @@ export class Heatmap {
         b = Math.min(stop, c.x1);
       band.hidden = b <= a;
       if (b <= a) continue;
-      const width = this.root.clientWidth - 160;
+      const width = this.root.clientWidth - 176;
       Object.assign(band.style, {
         left: `${74 + ((a - c.x0) / (c.x1 - c.x0)) * width}px`,
         top: "37px",
@@ -354,10 +378,10 @@ export class Heatmap {
     const gl = this.gl,
       r = this.pixels.getBoundingClientRect();
     this.pixels.width = Math.round(
-      r.width * Math.min(devicePixelRatio || 1, 2),
+      r.width * (exportDensity || Math.min(devicePixelRatio || 1, 2)),
     );
     this.pixels.height = Math.round(
-      r.height * Math.min(devicePixelRatio || 1, 2),
+      r.height * (exportDensity || Math.min(devicePixelRatio || 1, 2)),
     );
     gl.viewport(0, 0, this.pixels.width, this.pixels.height);
     gl.useProgram(this.program);
@@ -376,10 +400,10 @@ export class Heatmap {
     ctx.clearRect(0, 0, W, H);
     const left = 74,
       top = 37,
-      width = W - 160,
+      width = W - 176,
       height = H - 100,
       c = this.config;
-    ctx.font = "11px system-ui";
+    ctx.font = "14px Arial, sans-serif";
     ctx.fillStyle = fg;
     ctx.strokeStyle = grid;
     ctx.textAlign = "right";
@@ -408,7 +432,7 @@ export class Heatmap {
     }
     ctx.fillText(c.xLabel ?? "", left + width / 2, H - 20);
     ctx.save();
-    ctx.translate(17, top + height / 2);
+    ctx.translate(8, top + height / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(c.yLabel ?? "", 0, 0);
     ctx.restore();
@@ -525,6 +549,7 @@ export class LinePlot {
     this.root = document.getElementById(id);
     this.canvas = document.createElement("canvas");
     this.root.append(this.canvas);
+    addExport(this,false);
     this.root.style.display = "none";
     this.canvas.onclick = (e) => {
       if (!this.config || !onSelect) return;
@@ -569,7 +594,7 @@ export class LinePlot {
     y1 += pad;
     const xp = (x) => l + ((x - c.x0) / (c.x1 - c.x0)) * w,
       yp = (y) => t + h - ((y - y0) / (y1 - y0)) * h;
-    ctx.font = "11px system-ui";
+    ctx.font = "14px Arial, sans-serif";
     ctx.fillStyle = fg;
     ctx.strokeStyle = grid;
     ctx.textAlign = "right";
@@ -599,7 +624,7 @@ export class LinePlot {
       ctx.fillText(s.name, leg, 14);
       leg += ctx.measureText(s.name).width + 22;
       ctx.strokeStyle = s.color;
-      ctx.lineWidth = s.width ?? 1.2;
+      ctx.lineWidth = s.width ?? 1.6;
       ctx.save();
       ctx.beginPath();
       ctx.rect(l, t, w, h);

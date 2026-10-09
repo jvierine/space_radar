@@ -107,8 +107,8 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
   let radialSpec=null;
   if (job.algorithm === "fft") {
     const g=job.grid;
-    total=wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,16000000);
-    if(total<0) throw Error("Invalid radial bounds or more than 16 million r₀ / v₀ / a₀ grid points. Narrow the bounds or increase the phase tolerance.");
+    total=wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,32000000);
+    if(total<0) throw Error("Invalid radial bounds or more than 32 million r₀ / v₀ / a₀ grid points. Narrow the bounds or increase the phase tolerance.");
     wasm.radial_info();radialSpec=[...copy()];
   }
   let windows = 0;

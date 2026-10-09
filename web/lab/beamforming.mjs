@@ -3,6 +3,7 @@
 // Local simplex coordinates are unwrapped so centroids remain continuous at 0/2π.
 // Only the returned phases are wrapped; the objective itself is periodic.
 export function refinePhases(objective, start, step, maxIterations = 500) {
+  const dimension=start.length;
   let evaluations=0;
   const vertex=x=>({x,value:objective(x)});
   const evaluate=x=>{evaluations++;return vertex(x);};
@@ -11,19 +12,19 @@ export function refinePhases(objective, start, step, maxIterations = 500) {
   for(;iterations<maxIterations;iterations++) {
     simplex.sort((a,b)=>b.value-a.value);
     const diameter=Math.max(...simplex.slice(1).map(v=>Math.hypot(...v.x.map((x,j)=>x-simplex[0].x[j]))));
-    const spread=Math.abs(simplex[0].value-simplex[3].value);
+    const spread=Math.abs(simplex[0].value-simplex[dimension].value);
     if(diameter<1e-6 && spread<1e-10*Math.max(1,Math.abs(simplex[0].value))){converged=true;break;}
-    const centre=start.map((_,j)=>(simplex[0].x[j]+simplex[1].x[j]+simplex[2].x[j])/3);
-    const worst=simplex[3];
+    const centre=start.map((_,j)=>simplex.slice(0,dimension).reduce((s,v)=>s+v.x[j],0)/dimension);
+    const worst=simplex[dimension];
     const reflected=evaluate(centre.map((x,j)=>2*x-worst.x[j]));
     if(reflected.value>simplex[0].value) {
       const expanded=evaluate(centre.map((x,j)=>x+2*(reflected.x[j]-x)));
-      simplex[3]=expanded.value>reflected.value?expanded:reflected;
-    } else if(reflected.value>simplex[2].value) simplex[3]=reflected;
+      simplex[dimension]=expanded.value>reflected.value?expanded:reflected;
+    } else if(reflected.value>simplex[dimension-1].value) simplex[dimension]=reflected;
     else {
       const outside=reflected.value>worst.value;
       const contracted=evaluate(centre.map((x,j)=>x+0.5*((outside?reflected.x[j]:worst.x[j])-x)));
-      if(contracted.value>(outside?reflected.value:worst.value))simplex[3]=contracted;
+      if(contracted.value>(outside?reflected.value:worst.value))simplex[dimension]=contracted;
       else simplex=simplex.map((v,i)=>i===0?v:evaluate(v.x.map((x,j)=>simplex[0].x[j]+0.5*(x-simplex[0].x[j]))));
     }
   }
@@ -32,11 +33,44 @@ export function refinePhases(objective, start, step, maxIterations = 500) {
   return {phases:best.x.map(v=>((v%(2*Math.PI))+2*Math.PI)%(2*Math.PI)),peak:best.value,iterations,evaluations,converged};
 }
 
+export function receiverGrowth(event, noise, phases, steps=10) {
+  const energy=(z,count,weights)=>{
+    let re=0,im=0;
+    for(let a=0;a<count;a++) {
+      const c=Math.cos(weights[a]),s=Math.sin(weights[a]);
+      re+=c*z[2*a]-s*z[2*a+1];im+=s*z[2*a]+c*z[2*a+1];
+    }
+    return (re*re+im*im)/count;
+  };
+  const rows=[];
+  for(let count=1;count<=4;count++) {
+    const objective=weights=>{
+      const reference=noise.reduce((total,z)=>total+energy(z,count,weights),0)/noise.length;
+      return reference>0?energy(event,count,weights)/reference:-Infinity;
+    };
+    let weights=phases.slice(0,count),score=objective(weights);
+    if(count===2 || count===3) {
+      let best=-Infinity,start=phases.slice(1,count);
+      for(let i=0;i<steps;i++)for(let j=0;j<(count===3?steps:1);j++) {
+        const candidate=[0,i*2*Math.PI/steps,...(count===3?[j*2*Math.PI/steps]:[])],value=objective(candidate);
+        if(value>best){best=value;start=candidate.slice(1);}
+      }
+      const refined=refinePhases(x=>objective([0,...x]),start,Math.PI/steps);
+      weights=[0,...refined.phases];score=refined.peak;
+    }
+    const a=count-1,individualReference=noise.reduce((s,z)=>s+z[2*a]**2+z[2*a+1]**2,0)/noise.length;
+    const individual=(event[2*a]**2+event[2*a+1]**2)/individualReference;
+    const gain=count>1?score/rows[count-2].score:null;
+    const idealGain=count>1?1+individual/rows[count-2].score:null;
+    rows.push({count,score,gain,idealGain,phases:weights,percentIdeal:count>1?100*(score-rows[count-2].score)/individual:null});
+  }
+  return rows;
+}
+
 export function phaseSearch(event, noise, steps = 10) {
   if (!Number.isInteger(steps) || steps < 2 || steps > 32 || event.length !== 8 || noise.length < 8)
     throw Error('Need four receivers, at least eight quiet trains, and 2–32 phase steps.');
-  const scores = new Float64Array(steps ** 3), projection = new Float32Array(steps ** 2);
-  projection.fill(-Infinity);
+  const projections = Array.from({length:3},()=>new Float32Array(steps ** 2).fill(-Infinity));
   const sum = (z, phases) => {
     let re=0,im=0;
     for(let a=0;a<4;a++) {
@@ -50,16 +84,21 @@ export function phaseSearch(event, noise, steps = 10) {
     const phases=[0,i*2*Math.PI/steps,j*2*Math.PI/steps,k*2*Math.PI/steps];
     const reference=noise.reduce((total,z)=>total+sum(z,phases),0)/noise.length;
     const score=reference>0?sum(event,phases)/reference:NaN;
-    const index=(i*steps+j)*steps+k; scores[index]=score;
     const db=10*Math.log10(score);
-    if(Number.isFinite(db))projection[j*steps+i]=Math.max(projection[j*steps+i],db);
+    if(Number.isFinite(db)) {
+      // Horizontal/vertical axes: RX1/RX2, RX1/RX3, RX2/RX3.
+      for(const [p,index] of [[0,j*steps+i],[1,k*steps+i],[2,k*steps+j]])
+        projections[p][index]=Math.max(projections[p][index],db);
+    }
     if(Number.isFinite(score)&&score>peak){peak=score;best={indices:[i,j,k],phases,reference};}
   }
   if(!best)throw Error('No finite beam score: quiet matched power is zero.');
-  const single=Array.from({length:4},(_,a)=>{
+  const channelPower=Array.from({length:4},(_,a)=>{
     const power=z=>z[2*a]**2+z[2*a+1]**2;
-    return power(event)/(noise.reduce((s,z)=>s+power(z),0)/noise.length);
+    const observed=power(event),quiet=noise.reduce((s,z)=>s+power(z),0)/noise.length;
+    return {observed,quiet};
   });
+  const single=channelPower.map(p=>p.observed/p.quiet);
   const gridPeak=peak,gridPhases=[...best.phases],gridReference=best.reference;
   const refinement=refinePhases(phases=>{
     const all=[0,...phases];
@@ -68,8 +107,10 @@ export function phaseSearch(event, noise, steps = 10) {
   },best.phases.slice(1),Math.PI/steps);
   const phases=[0,...refinement.phases];
   const reference=noise.reduce((total,z)=>total+sum(z,phases),0)/noise.length;
+  const singleAverage=single.reduce((total,v)=>total+v,0)/4;
+  const totalGain=refinement.peak/singleAverage;
   return {steps,indices:best.indices,peak:refinement.peak,phases,reference,
-    gridPeak,gridPhases,gridReference,refinement:{iterations:refinement.iterations,evaluations:refinement.evaluations,converged:refinement.converged},single,projection};
+    gridPeak,gridPhases,gridReference,refinement:{iterations:refinement.iterations,evaluations:refinement.evaluations,converged:refinement.converged},single,channelPower,projections,growth:receiverGrowth(event,noise,phases,steps),total:{singleAverage,gain:totalGain,idealGain:4,percentIdeal:100*totalGain/4}};
 }
 
 export function commonValid(receivers, samples, rows) {

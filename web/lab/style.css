@@ -1,13 +1,13 @@
 :root {
-  color-scheme: dark;
-  --bg: #09131c;
-  --card: #111f2b;
-  --edge: #2d414e;
-  --text: #e6eef3;
-  --muted: #a2b6c2;
-  --gold: #f1cf74;
-  --teal: #57d8c0;
-  --blue: #78b7ff;
+  color-scheme: light;
+  --bg: #ffffff;
+  --card: #ffffff;
+  --edge: #d5dce1;
+  --text: #20252b;
+  --muted: #4d5b65;
+  --gold: #995200;
+  --teal: #007c78;
+  --blue: #276bad;
 }
 * {
   box-sizing: border-box;
@@ -75,15 +75,15 @@ a {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: #12352f;
-  color: #b7eadc;
-  border-block: 1px solid #25574b;
+  background: #eaf5ef;
+  color: #17513b;
+  border-block: 1px solid #a8cbb9;
   padding: 9px max(32px, calc((100vw - 1536px) / 2));
   font-size: 13px;
 }
 .status.error {
-  background: #472929;
-  color: #ffbab6;
+  background: #fff0ef;
+  color: #9a201b;
 }
 .card {
   background: var(--card);
@@ -125,8 +125,8 @@ select,
 button {
   font: inherit;
   border-radius: 5px;
-  border: 1px solid #3a5361;
-  background: #0c1923;
+  border: 1px solid #b8c3cc;
+  background: #ffffff;
   color: var(--text);
   padding: 8px 10px;
 }
@@ -145,8 +145,8 @@ button:hover {
   border-color: var(--teal);
 }
 button.primary {
-  background: #245c51;
-  border-color: #398779;
+  background: #e2f0e9;
+  border-color: #528b75;
 }
 button:disabled {
   opacity: 0.45;
@@ -180,7 +180,7 @@ button:disabled {
 .heatmap .pixels {
   left: 74px;
   top: 37px;
-  width: calc(100% - 160px);
+  width: calc(100% - 176px);
   height: calc(100% - 100px);
 }
 .heatmap .axes {
@@ -197,6 +197,18 @@ button:disabled {
   grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
+.beam-marginals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(300px, 1fr));
+  gap: 16px;
+  overflow-x: auto;
+}
+.beam-marginals > div { min-width: 0; }
+.beam-marginals h3 { font-size: 14px; }
+.beam-growth { overflow-x: auto; }
+.beam-growth table { width: 100%; }
+.beam-growth th, .beam-growth td { padding: 6px 12px 6px 0; text-align: right; }
+.beam-growth th:first-child, .beam-growth td:first-child { text-align: left; }
 .lineplot {
   height: 260px;
   position: relative;
@@ -317,8 +329,8 @@ footer {
   transform: translateX(-50%);
   font-size: 11px;
   padding: 2px 6px;
-  background: #102943;
-  color: #b9d9ff;
+  background: #e7f1ff;
+  color: #174e88;
   border-color: #78b7ff;
   cursor: grab;
 }
@@ -345,7 +357,7 @@ footer {
 
 .coherent-window {
   z-index: 3;
-  border-color: #f1cf74;
+  border-color: #754f00;
   background: #f1cf7418;
 }
 .coherent-window.dragging {
@@ -354,9 +366,9 @@ footer {
 .coherent-window .window-label {
   top: auto;
   bottom: 28px;
-  background: #302918;
-  color: #f1cf74;
-  border-color: #f1cf74;
+  background: #fff4cf;
+  color: #754f00;
+  border-color: #754f00;
 }
 
 .heatmap .pixels { touch-action: none; cursor: crosshair; }
@@ -369,3 +381,6 @@ footer {
 }
 .plot-zoom-box[hidden], .plot-reset[hidden] { display: none; }
 .plot-reset { font-size: 12px; padding: 4px 8px; margin: 0 0 8px 74px; }
+
+.plot-export { position: absolute; bottom: 0; right: 0; z-index: 4; font-size: 11px; padding: 2px 6px; background: #fff; color: #35434d; }
+.heatmap, .lineplot { background: #fff; }

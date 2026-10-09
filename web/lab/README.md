@@ -46,8 +46,8 @@ Prepared data and QA products are ignored by Git; raw captures are not bundled.
   samples at 12.5 MS/s collect 18 µs. Idle is 5 µs. Ramp tail is not stored:
   default 0.37 µs is an assumption, giving a 25.37 µs chirp period. Default
   frame interval assumes continuous frames, 125 × 25.37 µs = 3.17125 ms.
-  Both are editable. Clock labels are Unix epoch seconds with an explicit
-  UTC assumption because the source timezone is unspecified. View bounds use
+  Both are editable. Time labels show reconstructed seconds since file start,
+  independent of the source clock timezone. View bounds use
   inclusive first/last chirps; Zoom to background shows the selected mean interval.
   Clock labels are reconstructed, and concatenated-index
   plots omit any configured gaps. Coherent searches do not cross frames.
@@ -131,6 +131,20 @@ the three relative receiver phases, with RX0 fixed at zero. Both stages use
 the same background-referenced matched-energy ratio and quiet trains. The
 reported phases and peak are refined; the projection remains the discrete
 grid, and the table reports both peaks.
+
+The viewer uses a white background, dark plot labels, and brown/teal traces.
+Each plot's PNG button exports its current view at four times the displayed
+pixel dimensions, with freshly rendered labels, axes, and color bar on an
+opaque white background. Interactive controls are excluded from the figure.
+
+Beamforming includes three MAX phase projections, separate subset phase
+optimization for receiver-growth comparisons, and total gain relative to the
+linear mean of the four individual ratios. Expand the receiver diagnostics
+to compare each channel's observed and quiet matched powers. Background
+means are removed separately for each channel using common intact chirps.
+The RCS/PEC-diameter table uses editable thermal/radar assumptions (9000 K
+by default); see `BEAMFORMING.md` for its conversion and inversion conventions.
+
 Manual bounds and other view buttons retain custom views. Matched-filter maps
 initially show the complete configured search grid and mark its global peak
 with a cross; radial FFT screening peaks and directly verified fits are
@@ -168,9 +182,9 @@ FFT-bin rounding, range/velocity sampling, and polynomial truncation add
 errors. It is not a guarantee of total energy loss or global recovery.
 Range and velocity axes have padded FFT-derived spacing; all axes include
 the original bounds and support singleton intervals. Signed a0 is allowed.
-Eight-chirp default bounds r0=[0.05,0.7] m, v0=[-400,400] m/s and a0=[0,1e6]
-m/s² produce 73×678×37 radial nodes with 259 shared correction FFTs at 5%.
-A 16-million-node cap reports an error instead of shrinking the bounds.
+Eight-chirp default bounds r0=[0.001,3] m, v0=[-900,900] m/s and a0=[0,1e6]
+m/s² produce 329×1524×37 radial nodes with 555 shared correction FFTs at 5%.
+A 32-million-node cap reports an error instead of shrinking the bounds.
 
 Every grid node with positive range throughout the train gets an approximate
 FFT matched-energy/quiet-energy ratio. The same correction and bins are

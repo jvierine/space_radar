@@ -1,4 +1,4 @@
-import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009brush2';
+import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009time1';
 const cache=new Map();
 async function channel(spec){
  if(cache.has(spec.sha256))return cache.get(spec.sha256);
@@ -27,6 +27,9 @@ onmessage=async({data:job})=>{
   const q=new Float32Array(engine.memory.buffer,engine.result_ptr(),engine.result_len()).slice();
   const projections=projectReceivers(receivers,q,{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start:match.start,pulses:match.pulses,bgStart:match.bgRange[0],bgStop:match.bgRange[1],noiseStart:match.noiseRange[0],noiseStop:match.noiseRange[1],conjugated:match.best[4]>0});
   const result=phaseSearch(projections.event,projections.noise,job.steps);
-  postMessage({id:job.id,type:'result',result:{...result,referenceStarts:projections.referenceStarts,meanCount:projections.meanCount}});
+  let amplitudeSum=0,energy=0;
+  for(let i=0;i<q.length;i+=2){const amplitude=Math.hypot(q[i],q[i+1]);amplitudeSum+=amplitude;energy+=amplitude*amplitude;}
+  const effectiveTime=amplitudeSum**2/(p.fs*energy);
+  postMessage({id:job.id,type:'result',result:{...result,effectiveTime,referenceStarts:projections.referenceStarts,meanCount:projections.meanCount}});
  }catch(error){postMessage({id:job.id,type:'error',text:error.message});}
 };
