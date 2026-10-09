@@ -10,7 +10,7 @@ receiver correlations. One chirp permits a raw-background upper bound, but canno
 separate arbitrary stationary echoes from noise; RCS is omitted in that case.
 Matched noise projection energy = noise sample power × Σ|q|², assuming temporal
 white noise. With normalization of projected powers by N Σ|q|², analysis bandwidth is
-1/T_coh, where T_coh = N/fs is the acquired coherent integration length and displayed SNR is 10 log10(max(observed/noise − 1, 1e−12)).
+1/T_coh, where T_coh = N/fs is the acquired coherent integration length and displayed SNR is 10 log10(max(observed/noise − 1, 1)) (0 dB display floor; underlying powers are not floored).
 Noise is therefore scaled to analysis bandwidth before computing SNR or RCS.
 The background-mean uncertainty in event subtraction is not included in that
 white-noise propagation; beam RCS also retains the ideal-four-receiver assumption.
@@ -73,10 +73,9 @@ refinement. Maximum normalized score error was 7.11e−6. These are native
 Dawn/Metal measurements on this Mac, not browser timings. An actual browser
 can have different dispatch overhead and hardware/limit availability.
 
-The GUI now defaults to v0 = 0…900 m/s. Raw quiet references may include
-stationary clutter. Their template-dependent denominator can favor a different
-ratio maximum from the injected trajectory; the raw-clutter NumPy regression
-verifies the exact statistic separately from white-noise recovery tests.
+The GUI now defaults to v0 = 0…600 m/s. The benchmark above used the earlier
+matched-background normalization; current normalization uses per-RX residual
+noise power after removal of the stationary quiet waveform.
 
 HDF5 download uses vendored h5wasm 0.10.3 (NIST; license in vendor/h5wasm). It stores every completed train estimate, receiver/beam scores, phase search outputs, RCS and every diameter inversion root, plus the current full matched-filter bank and complex voltage fit. Timing is reconstructed. `tools/validate_analysis_export.mjs` and independent h5py readback validate the exported file. Waveforms and fitted trajectories use lines. All analysis histories, including SNR and every diameter root, use unconnected scatter points. `tools/validate_selected_spectrum.mjs` checks the selected receiver spectrogram independently.
 
