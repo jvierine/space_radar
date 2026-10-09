@@ -48,11 +48,22 @@ locally and excluded from Git; published browser assets remain at juha.no.
 
 ## Radial FFT search and GUI
 
-`radial_fft_search.py` is a separate 12-slide white-background deck. It explains
-the three motion parameters, straight-line geometry, phase alignment,
-correction-plus-FFT search, per-receiver noise estimation, explained matched
-powers and map projections, and graphical selections/results/export. All illustrated
-trajectories and phasors are synthetic. The slides link to the laboratory; technical derivations remain in the memos.
+`radial_fft_search.py` is a separate 25-slide white-background deck. It starts
+with the two goals: coherent integration for higher SNR, and projectile diameter
+from SNR. It derives the motion parameters, animates full FMCW echo phase removal,
+shows complex acceleration waveforms, proves the FFT matched-sum identity, and
+explains the actual grouped Rust/WebGPU search and the endpoint phase bound
+that sets acceleration-grid spacing. The remaining slides cover
+per-receiver residual noise, matched power, maximum projections, thermal power
+calibration, radar cross section, conducting-sphere Mie inversion, and the GUI.
+
+`radial_fft_demo.py` independently compares direct complex sums with FFT outputs
+and measures a synthetic NumPy CPU example. Its plots and all Mie inverse branches
+are regenerated during rendering; numerical products are saved in
+`assets/radial_fft_demo.h5`. This uniform Doppler illustration is explicitly
+separated from the full FMCW implementation. `radial_fft_assets.py` supplies the
+synthetic full FMCW beat phase for the unwinding animation. All plotted signals
+and diameter examples are synthetic. The slides link to the laboratory.
 
 ```bash
 conda run -n base python radial_fft_assets.py
@@ -63,3 +74,6 @@ conda run -n base python export_web.py qa_fmcw_web RadialFFTSearch
 From the repository root, `conda run -n base python tools/radial_complexity.py`
 regenerates `manim/assets/radial_complexity.h5` for memo 10. The shipped planner
 counts are independently checked by `node tools/validate_complexity_counts.mjs`.
+
+Validate the exact geometry and acceleration-spacing derivation from the repository
+root with `conda run -n base python tools/validate_radial_geometry.py`.

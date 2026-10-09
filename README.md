@@ -104,7 +104,7 @@ See [simulator model and units](web/sim/README.md).
 
 | Source | Scene | Content |
 | --- | --- | --- |
-| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **12 slides:** r0/v0/a0, correction + FFT, automatic grid and the GUI |
+| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **25 slides:** coherent integration, full echo phase alignment, FFT matched-filter implementation, SNR → RCS → Mie diameter, and the GUI |
 | [`manim/fmcw_space_radar.py`](manim/fmcw_space_radar.py) | `FMCWSpaceRadar` | 47-slide radar lecture, simulations and measured examples |
 | [`manim/radar_equation_noise.py`](manim/radar_equation_noise.py) | `RadarEquationNoise` | Radar equation, thermal noise and coherent integration |
 

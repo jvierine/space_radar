@@ -2,12 +2,14 @@
 Render the full scene with --disable_caching.
 All plotted trajectories and phase vectors are synthetic.
 """
+from pathlib import Path
 import h5py
 import numpy as np
 from manim import *
 from manim_slides import Slide
 from planck_to_ktb import Text
 from radial_fft_assets import generate
+from radial_fft_demo import generate_demo
 
 FG, MUTED, BLUE, ORANGE, PURPLE = '#202830','#556575','#176BB0','#B55A00','#7939A8'
 
@@ -19,6 +21,7 @@ class RadialFFTSearch(Slide):
         self.add(self.footer)
 
     def prose(self,s,size=29,color=FG):
+        for symbol,word in [('λ','lambda'),('φ','phi'),('σ','sigma'),('ε','epsilon'),('Δ','Delta '),('⁻¹²','^(-12)'),('i²','i squared')]:s=s.replace(symbol,word)
         m=Text(s,font_size=size,color=color)
         if m.width>12.5:m.scale_to_fit_width(12.5)
         return m
@@ -44,9 +47,26 @@ class RadialFFTSearch(Slide):
         self.play(FadeIn(group),run_time=.8)
         self.wait(.7)
 
+    def demo_image(self,name,width):
+        return ImageMobject(str(Path(__file__).parent/'media/radial_fft_demo'/f'{name}.png')).scale_to_fit_width(width)
+
     def construct(self):
+        demo=generate_demo()
         path=generate()
-        with h5py.File(path) as f:psi=f['correction_rad'][:,112]
+        with h5py.File(path) as f:
+            phase=f['phase_rad'][:];beat_times=(f['h_s'][:]-f['h_s'][:].min())*1e6
+
+        self.start('Coherent integration and projectile diameter',
+            'Two goals: maximize signal-to-noise ratio by matching motion across chirps; infer an ideal metallic sphere diameter from calibrated received power. The laboratory uses a full FMCW phase model.')
+        cover=VGroup(
+            self.prose('How can we maximize signal-to-noise ratio',37,BLUE),
+            self.prose('with coherent integration?',37,BLUE),
+            self.prose('How can we estimate projectile diameter',37,ORANGE),
+            self.prose('from the measured signal-to-noise ratio?',37,ORANGE),
+        ).arrange(DOWN,buff=.4).move_to(UP*.1)
+        self.play(FadeIn(cover))
+        self.play(FadeIn(self.prose('Motion model → phase correction → FFT matched filter → diameter',27,MUTED).move_to(DOWN*2.7)))
+        self.wait(1)
 
         self.start('Describe the motion with three numbers',
             'Parameters are defined at the acquired train midpoint t0. v0 is signed radial velocity, not Cartesian speed; a0 is radial range curvature. The quadratic range model is local.')
@@ -71,30 +91,158 @@ class RadialFFTSearch(Slide):
         explanation=VGroup(self.prose('X0: along-track separation. y0: distance from radar to the path.',26),self.prose('V: straight-line velocity. v0: radial velocity.',27),self.prose('Range can decrease while radial acceleration is positive.',27)).arrange(DOWN,buff=.4).move_to(DOWN*2.35)
         self.play(FadeIn(explanation));self.wait(1)
 
-        self.start('Align the chirps before adding them',
-            'Synthetic eight-chirp phasors after removing the dominant fast/slow sinusoid. Each direction is remaining phase. Correcting that phase restores coherent addition. Unsampled gaps retain phase timing. This is for multi-chirp integration.')
-        circles=VGroup(*[Circle(radius=1.25,color=MUTED).move_to([x,.35,0]) for x in [-3,3]])
-        arrows=VGroup(*[Arrow([-3,.35,0],[-3+1.15*np.cos(p),.35+1.15*np.sin(p),0],buff=0,color=ORANGE,stroke_width=3) for p in psi])
-        aligned=VGroup(*[Arrow([3,.35,0],[4.15,.35,0],buff=0,color=BLUE,stroke_width=3) for _ in psi])
-        labels=VGroup(self.prose('Different phases',32,ORANGE).move_to([-3,-1.35,0]),self.prose('Aligned phases',32,BLUE).move_to([3,-1.35,0]))
-        self.play(Create(circles),FadeIn(arrows),FadeIn(labels))
-        self.play(TransformFromCopy(arrows,aligned),run_time=1.2)
-        self.play(FadeIn(self.prose('Coherent integration: align phases, then add the signals.',32).move_to(DOWN*2.35)))
-        self.play(FadeIn(VGroup(self.prose('A chirp is one transmitted frequency sweep.',26,MUTED),self.prose('Each arrow shows phase: the angle of a received chirp signal.',26,MUTED)).arrange(DOWN,buff=.2).move_to(DOWN*3)))
+        self.start('Why the range, velocity and acceleration formulas are exact',
+            'Constant straight-line velocity V and fixed y0. Differentiate R squared, then Rprime=VX/R. Rsecond=V squared/R minus V squared X squared/R cubed = V squared y0 squared/R cubed. Evaluate at t0. These derivatives are exact; the quadratic Taylor trajectory is an approximation away from t0.')
+        self.content([
+            r'X(t)=Vt-x_0,\qquad R(t)=\sqrt{X(t)^2+y_0^2}',
+            r'2R\dot R=2XV\quad\Longrightarrow\quad \dot R=\frac{VX}{R}',
+            r'\ddot R=\frac{V^2}{R}-\frac{V^2X^2}{R^3}=\frac{V^2y_0^2}{R^3}',
+        ],[
+            'A dot means differentiation with respect to time.',
+            'At t0: X = X0, R = r0, velocity = v0, acceleration = a0.',
+            'Exact for constant V, fixed y0 and nonzero range.',
+            'The quadratic model approximates motion away from t0.',
+        ])
+
+        self.start('Write down the coherent integration',
+            'The inner product is s_b=sum_j conjugate(q_j)*z_bj over acquired samples. It is evaluated separately per RX and for both stored-I/Q orientations. The template can include the optional receiver response at direct verification.')
+        self.play(FadeIn(self.prose('To add the echo constructively: undo its predicted phase, then sum.',28).move_to(UP*2.35)))
+        self.play(Write(self.eq(r's_b=\sum_j q_j^*z_{b,j}',46).move_to(UP*1.3)))
+        terms=VGroup(
+            self.eq(r'q_j:\ \text{predicted complex signal at sample }j',30),
+            self.eq(r'z_{b,j}:\ \text{background-subtracted data from receiver }b',30),
+            self.eq(r'q_j^*:\ \text{complex conjugate; reverses the predicted phase}',30),
+            self.eq(r'\sum_j:\ \text{add all samples in the selected chirp train}',30),
+            self.eq(r's_b:\ \text{the resulting complex sum for receiver }b',30),
+        ).arrange(DOWN,buff=.38).move_to(DOWN*1.25)
+        self.play(FadeIn(terms));self.wait(1)
+
+        self.start('Unwind the echo waveform, then add it constructively',
+            'Synthetic full FMCW beat phase: transmitted chirp phase evaluated at the delayed return minus local transmit phase, with delay 2R(t)/c and quadratic moving range. Each acquired sample is multiplied by conjugate of its full predicted phase. Animation continuously removes that phase; phase unwrapping alone would not change the voltage or align it. No data in idle gaps. Noise would remain random rather than flatten.')
+        self.play(FadeIn(self.prose('The beat phase contains the transmit sweep, propagation delay and target motion.',26,MUTED).move_to(UP*2.5)))
+        axes=Axes(x_range=[0,float(beat_times.max()),25],y_range=[-1,1,.5],x_length=12,y_length=2.9,
+            axis_config={'color':MUTED,'include_tip':False}).move_to(UP*.2)
+        self.play(Create(axes))
+        self.play(FadeIn(self.prose('Time across eight chirps (µs); gaps contain no samples',25,MUTED).move_to(DOWN*1.65)))
+        p=phase-phase[0,0]
+        def curves(fraction):
+            z=np.exp(1j*(1-fraction)*p)
+            group=VGroup()
+            for k in range(8):
+                for values,col in [(z[k].real,BLUE),(z[k].imag,ORANGE)]:
+                    line=VMobject(color=col,stroke_width=2)
+                    line.set_points_as_corners([axes.c2p(x,y) for x,y in zip(beat_times[k],values)])
+                    group.add(line)
+            return group
+        wave=curves(0)
+        self.play(FadeIn(wave))
+        legend=VGroup(self.prose('Real voltage',25,BLUE),self.prose('Imaginary voltage',25,ORANGE)).arrange(RIGHT,buff=.7).move_to(UP*1.95)
+        self.play(FadeIn(legend));self.wait(1)
+        correction=self.eq(r'z_jq_j^*=A\quad\text{when }z_j=Aq_j',40).move_to(DOWN*2.25)
+        self.play(FadeIn(correction))
+        self.play(UpdateFromAlphaFunc(wave,lambda m,alpha:m.become(curves(alpha))),run_time=5,rate_func=linear)
+        self.play(FadeIn(self.prose('All echo samples now have the same phase: their complex sum is N × A.',27).move_to(DOWN*2.95)))
+        self.play(FadeIn(self.prose('q: full predicted echo. A: echo amplitude. N: acquired samples. Synthetic noiseless signal.',22,MUTED).move_to(DOWN*3.4)))
         self.wait(1)
 
-        self.start('Try a correction, then let the FFT search',
-            'Actual algorithm: acceleration planes and bounded velocity correction groups, representative range-dependent residual phase, fast FFT for each RX/chirp then sparse slow FFT. Search explicit r0/v0/a0 nodes and both I/Q orientations; incoherently add the four RX matched powers. Verify candidates with exact quadratic templates and refine. Fast frequency mixes range and Doppler; correction contains all parameters.')
-        factor=self.eq(r'\text{signal}=\text{dominant sinusoid}\times\text{phase correction}',41).move_to(UP*1.7)
-        self.play(FadeIn(factor))
-        boxes=VGroup()
-        for x,label,color in [(-4.3,'Try a correction',ORANGE),(0,'FFT search',BLUE),(4.3,'Keep the best fit',PURPLE)]:
-            box=RoundedRectangle(width=3.65,height=1.15,corner_radius=.12,color=color)
-            box.add(self.prose(label,30,color)).move_to([x,0,0]);boxes.add(box)
-        connectors=VGroup(*[Arrow([x,0,0],[x+.6,0,0],buff=0,color=MUTED) for x in [-2.35,1.75]])
-        self.play(LaggedStart(*[FadeIn(b) for b in boxes],lag_ratio=.3),FadeIn(connectors))
-        rows=VGroup(self.prose('Sinusoid: a constant-frequency oscillation.',28),self.prose('Correction: removes extra phase changes predicted by the model.',28),self.prose('FFT: fast Fourier transform; searches frequencies efficiently.',28),self.prose('Repeat corrections and keep the strongest match.',28)).arrange(DOWN,buff=.3).move_to(DOWN*2)
-        self.play(FadeIn(rows));self.wait(1)
+        self.start('Why the matched filter maximizes signal-to-noise ratio',
+            'For z=Aq+n and white complex noise variance Pn per acquired sample, output w dagger z has signal power |A| squared |w dagger q| squared and variance Pn ||w|| squared. Cauchy-Schwarz gives upper bound |A| squared ||q|| squared/Pn, reached for w proportional q. For phase-only templates ||q|| squared=N. Colored noise requires inverse covariance weighting; the GUI assumes temporal white noise after quiet subtraction.')
+        self.content([
+            r'z=Aq+n,\qquad \mathrm{SNR}_{\rm out}=\frac{|A|^2|w^Hq|^2}{P_n\|w\|^2}',
+            r'|w^Hq|^2\leq\|w\|^2\|q\|^2\quad\Longrightarrow\quad w\propto q',
+            r'\mathrm{SNR}_{\rm max}=N\frac{|A|^2}{P_n}\quad\text{for }|q_j|=1',
+        ],[
+            'z: acquired voltage vector. q: predicted echo. n: noise. A: echo amplitude.',
+            'w: integration weights. H: conjugate transpose. Squared norm: sum of powers.',
+            'Pn: noise variance per sample. N: acquired samples.',
+            'The inequality is Cauchy–Schwarz; matching the echo attains its bound.',
+            'Assumes independent, equal-variance noise across time samples.',
+        ])
+
+        self.start('Acceleration adds a changing phase',
+            'Synthetic uniform carrier-phase example at 77 GHz. Isolates the acceleration term for teaching; production uses full FMCW phase, including fast-time chirp terms. Convention q=exp(-i4pi R/lambda).')
+        self.play(Write(self.eq(r'h=t-t_0,\quad \Delta R_a=\tfrac12a_0h^2,\quad \phi_a=-\frac{2\pi a_0h^2}{\lambda}',40).move_to(UP*2)))
+        self.play(FadeIn(self.prose('h: time from midpoint. λ: wavelength. φa: acceleration phase.',23,MUTED).move_to(UP*1.25)))
+        self.play(FadeIn(self.demo_image('acceleration_factor',12.5).move_to(DOWN*.75)))
+        self.play(FadeIn(self.prose('Complex factor = cos(φa) + i sin(φa); i² = -1.',27).move_to(DOWN*2.8)))
+        self.play(FadeIn(self.prose('Synthetic Doppler example; the GUI uses the full FMCW phase.',23,MUTED).move_to(DOWN*3.25)))
+        self.wait(1)
+
+        self.start('Undo the trial acceleration in the complex voltage',
+            'Multiply measured complex voltage by conjugate of the trial acceleration factor. Correct trial removes chirping; wrong trials leave changing phase. A unit-magnitude factor changes phase without changing instantaneous power.')
+        self.play(FadeIn(self.prose('Corrected voltage = measured voltage × conjugate trial factor',30).move_to(UP*2.6)))
+        self.play(FadeIn(self.demo_image('complex_voltage',12).move_to(DOWN*.2)))
+        self.play(FadeIn(self.prose('Conjugation reverses phase. The correct trial leaves a constant-frequency wave.',25,MUTED).move_to(DOWN*3.05)))
+        self.wait(1)
+
+        self.start('One FFT scores all velocity bins for this correction',
+            'Uniform-sampling teaching example: Doppler frequency f=-2v/lambda. FFT evaluates all sampled-frequency inner products at once. In full FMCW, fast frequency mixes range and velocity and slow frequency carries Doppler; repeat bounded correction groups rather than claiming one FFT covers every physical template.')
+        self.play(FadeIn(self.demo_image('velocity_search',12).move_to(UP*.1)))
+        self.play(FadeIn(self.prose('Try acceleration → correct the voltage → FFT → read every velocity-bin power.',27).move_to(DOWN*2.45)))
+        self.play(FadeIn(self.prose('Here Doppler frequency f = -2v / λ; v is radial velocity.',26,MUTED).move_to(DOWN*3.05)))
+        self.wait(1)
+
+        self.start('How can we do this efficiently?',
+            'For each acceleration correction perform an FFT, rather than one direct N-sample inner product per frequency. An L-point FFT costs O(L log2 L), including zero padding. Direct evaluation at Nv velocity bins costs O(N Nv). N is acquired samples; L is transform length. The diagram isolates acceleration/Doppler; full FMCW adds bounded correction groups and range mapping.')
+        self.play(FadeIn(self.prose('Loop over acceleration corrections. Each FFT scores many velocities together.',29).move_to(UP*2.5)))
+        branches=VGroup()
+        for row,(label,col) in enumerate([(r'a=0',MUTED),(r'a=\Delta a',ORANGE),(r'a=2\Delta a',PURPLE)]):
+            y=1.35-row*1.15
+            trial=self.eq(label,29).set_color(col).move_to([-5.4,y,0])
+            corr=RoundedRectangle(width=3.2,height=.7,corner_radius=.08,color=col).move_to([-2.7,y,0])
+            corr.add(self.prose('Conjugate correction',24,col).move_to(corr))
+            fft=RoundedRectangle(width=1.35,height=.7,corner_radius=.08,color=BLUE).move_to([.25,y,0])
+            fft.add(self.prose('FFT',28,BLUE).move_to(fft))
+            arrow=Arrow(corr.get_right(),fft.get_left(),buff=.12,color=MUTED)
+            bars=VGroup(*[Rectangle(width=.1,height=.12+.48*np.exp(-((k-8-row)/2)**2),fill_color=BLUE,fill_opacity=.7,stroke_width=0).align_to([0,y-.3,0],DOWN) for k in range(20)]).arrange(RIGHT,buff=.035,aligned_edge=DOWN).move_to([3.5,y,0])
+            branches.add(VGroup(trial,corr,arrow,fft,Arrow(fft.get_right(),bars.get_left(),buff=.12,color=MUTED),bars))
+        self.play(LaggedStart(*[FadeIn(row) for row in branches],lag_ratio=.35))
+        self.play(FadeIn(self.prose('Each bar is a velocity-bin matched power; keep the best across all rows.',26).move_to(DOWN*2.2)))
+        self.play(Write(self.eq(r'\text{Direct: }O(NN_v)\qquad\text{FFT: }O(L\log_2L)',35).move_to(DOWN*2.85)))
+        self.play(FadeIn(self.prose('N: acquired samples. Nv: velocity bins. L: FFT length (including padding).',23,MUTED).move_to(DOWN*3.4)))
+        self.wait(1)
+
+        self.start('An FFT is the matched-filter sum, evaluated for every bin',
+            'Exact algebra for factored sampled templates at DFT bins: q_mj=c_j exp(i2pi mj/L), s_m=sum z_j conjugate(q_mj)=DFT of z conjugate(c) at bin m. N acquired samples, L FFT length with zero padding; m bin, j sample. Exact factorization is not proof that approximate grouped production corrections match every exact physical template; direct verification follows.')
+        self.content([
+            r'q_{m,j}=c_j e^{2\pi i m j/L}',
+            r's_m=\sum_{j=0}^{N-1}z_jq_{m,j}^*=\sum_{j=0}^{N-1}(z_jc_j^*)e^{-2\pi i m j/L}',
+            r's_m=\operatorname{FFT}(z\,c^*)_m',
+        ],[
+            'zj: complex measurement. cj: trial phase correction. q: predicted signal.',
+            'j: sample index. m: frequency bin. N: samples. L: FFT length.',
+            'Zero-pad to L samples; each FFT bin is one matched-filter sum.',
+            'Two FFT axes apply the same identity within and between chirps.',
+        ])
+
+        self.start('The same answers, with shared computation',
+            'Independent NumPy direct phasor sums and FFT agree at all 356 velocity bins, for all three acceleration trials. Timings are medians of 101 runs, one BLAS thread, precomputed direct phasors; common correction excluded. This is a synthetic CPU illustration, not a browser benchmark.')
+        self.play(FadeIn(self.demo_image('fft_equals_direct',8).move_to([-2,.15,0])))
+        bench=VGroup(
+            self.prose(f"{demo['velocity_bins']} velocity bins",29,BLUE),
+            self.prose(f"Direct: {demo['cpu_direct_ms']:.3f} ms",27),
+            self.prose(f"FFT: {demo['cpu_fft_ms']:.3f} ms",27),
+            self.prose(f"{demo['speedup']:.1f}× faster in this example",26,BLUE),
+            self.prose('All bin powers agree',26),
+            self.prose('to within 1e-12.',26),
+        ).arrange(DOWN,buff=.35).move_to([4.2,.2,0])
+        self.play(FadeIn(bench))
+        self.play(FadeIn(self.prose('Synthetic NumPy CPU comparison; precomputed direct templates, 101-run median.',23,MUTED).move_to(DOWN*3.05)))
+        self.wait(1)
+
+        self.start('What our Rust / WebGPU implementation actually does',
+            'Source: lab-core/src/fft_search.rs transform/search_cell, web/lab/gpu.mjs. Each acceleration plane has bounded velocity correction groups. Fast FFT per chirp, sparse slow FFT over selected frequency columns; physical node mapping handles aliases within user bounds. Add four RX powers for each I/Q orientation. Verify candidate nodes with full quadratic FMCW templates and refine. CPU fallback.')
+        rows=VGroup(*[self.prose(line,29,col) for line,col in [
+            ('1. Build correction groups across the allowed acceleration and velocity bounds.',FG),
+            ('2. For each receiver: multiply samples by the conjugate correction.',ORANGE),
+            ('3. FFT within each chirp; then FFT across chirps at needed frequency bins.',BLUE),
+            ('4. Map FFT bins to range / velocity / acceleration; add four RX powers.',FG),
+            ('5. Normalize by matched noise; keep candidates and refine with full templates.',PURPLE),
+        ]]).arrange(DOWN,buff=.55).move_to(UP*.1)
+        self.play(LaggedStart(*[FadeIn(row) for row in rows],lag_ratio=.3))
+        self.play(FadeIn(self.prose('Repeat for both I/Q orientations. WebGPU when available; Rust/Wasm fallback.',24,MUTED).move_to(DOWN*2.8)))
+        self.play(FadeIn(self.prose('Correction sharing is approximate; final candidates use the full FMCW model.',24,MUTED).move_to(DOWN*3.25)))
+        self.wait(1)
 
         self.start('You give the bounds. The software builds the grid.',
             'Default bounds r0 .001..3 m, v0 0..600 m/s, a0 0..1e6 m/s2. FFT bin spacing sets r/v resolution; global phase derivative bounds set acceleration spacing and velocity groups. The phase tolerance is stagewise, not a bound on total model error. Oversized grids are rejected without truncating bounds; 32 million-node cap.')
@@ -104,16 +252,21 @@ class RadialFFTSearch(Slide):
         self.play(FadeIn(self.prose('Allowed loss: tolerated reduction of matched signal power.',28,MUTED).move_to(DOWN*2.9)))
         self.wait(1)
 
-        self.start('First, match each receiver to the predicted signal',
-            'The inner product is s_b=sum_j conjugate(q_j)*z_bj over acquired samples. It is evaluated separately per RX and for both stored-I/Q orientations. The template can include the optional receiver response at direct verification.')
-        self.play(Write(self.eq(r's_b=\sum_j q_j^*z_{b,j}',58).move_to(UP*1.7)))
-        terms=VGroup(
-            self.eq(r'q_j:\ \text{predicted complex signal at sample }j',34),
-            self.eq(r'z_{b,j}:\ \text{background-subtracted data from receiver }b',34),
-            self.eq(r'q_j^*:\ \text{complex conjugate; reverses the predicted phase}',34),
-            self.eq(r'\sum_j:\ \text{add all samples in the selected chirp train}',34),
-            self.eq(r's_b:\ \text{the resulting complex sum for receiver }b',34),
-        ).arrange(DOWN,buff=.38).move_to(DOWN*.7)
+        self.start('How many acceleration corrections are needed?',
+            'Carrier-phase bound with monostatic radial acceleration and midpoint origin: adjacent trial acceleration spacing Delta a gives maximum phase separation 2pi Delta a H squared/lambda where H=max_j|t_j-t0|. Require separation <=epsilon. Na=1+ceil((amax-amin)/Delta a) includes both endpoints. At nearest grid point acceleration mismatch <=Delta a/2. Fixed bounds and epsilon give Na-1 proportional H squared. In hard_target gmf_opts.py the corresponding start-referenced total-path convention uses pi Delta A tau squared/lambda with A=2a. GUI uses full FMCW phase-derivative bounds, not only carrier formula.')
+        ax=Axes(x_range=[-1,1,.5],y_range=[0,4,1],x_length=4.4,y_length=2.4,axis_config={'color':MUTED,'include_tip':False}).move_to([-4.3,.9,0])
+        curves=VGroup(*[ax.plot(lambda x,k=k:k*x*x,x_range=[-1,1],color=col) for k,col in enumerate([BLUE,ORANGE,PURPLE,MUTED])])
+        self.play(Create(ax),Create(curves))
+        self.play(FadeIn(self.prose('Phase separation / epsilon',22,MUTED).move_to([-4.3,2.5,0])))
+        self.play(FadeIn(self.prose('Adjacent phase curves stay within ε',22).move_to([-4.3,-.7,0])))
+        self.play(FadeIn(self.prose('Farthest samples: h = -H and +H',22,MUTED).move_to([-4.3,-1.2,0])))
+        formulas=VGroup(
+            self.eq(r'|\Delta\phi|_{\max}=\frac{2\pi\Delta a\,H^2}{\lambda}\leq\epsilon',34),
+            self.eq(r'\Delta a\leq\frac{\epsilon\lambda}{2\pi H^2}',34),
+            self.eq(r'N_a=1+\left\lceil\frac{a_{\max}-a_{\min}}{\Delta a}\right\rceil',34),
+        ).arrange(DOWN,buff=.55).move_to([2.5,.4,0])
+        self.play(FadeIn(formulas))
+        terms=VGroup(self.prose('Δa: grid spacing. ε: allowed adjacent phase separation (radians).',24),self.prose('H: largest sample time offset. λ: wavelength. Na: trial count (round up).',24),self.prose('Double the elapsed train span → about four times as many accelerations.',25,BLUE),self.prose('For gapped chirps use elapsed span here; noise T(coh) counts acquired sample time.',22,MUTED)).arrange(DOWN,buff=.22).move_to(DOWN*2.65)
         self.play(FadeIn(terms));self.wait(1)
 
         self.start('Estimate noise from the quiet beat signal',
@@ -147,6 +300,38 @@ class RadialFFTSearch(Slide):
         second=VGroup(self.eq(r'M_{va}(v_0,a_0)=\max_{r_0}\rho(r_0,v_0,a_0)',43),self.prose('Velocity versus acceleration: keep the best range at each pixel.',29)).arrange(DOWN,buff=.4).move_to(DOWN*1.05)
         self.play(FadeIn(first));self.play(FadeIn(second))
         self.play(FadeIn(self.prose('M is the map score. MAX selects the largest score.',29,MUTED).move_to(DOWN*2.8)))
+        self.wait(1)
+
+        self.start('From matched SNR to received signal power',
+            'Thermal calibration assumption Tsys=9000 K; white noise across complex sample-rate bandwidth. rho is observed power/noise, so signal SNR S=max(rho-1,0). B=1/Tcoh with acquired sample time. Do not invert the GUI zero-dB display floor. Beam received-power estimate additionally divides by assumed ideal four-RX gain.')
+        self.content([
+            r'S=\max(\rho-1,0),\qquad B=\frac{1}{T_{\rm coh}}',
+            r'P_r=S k_B T_{\rm sys} B=\frac{S k_B T_{\rm sys}}{T_{\rm coh}}',
+        ],[
+            'S: signal-to-noise power ratio in linear units, after subtracting expected noise.',
+            'B: analysis noise bandwidth. T(coh): acquired integration time.',
+            'kB: Boltzmann constant. T(sys): assumed system noise temperature, 9000 K.',
+            'Pr: received signal power in watts. Use the underlying ratio, not the display floor.',
+        ])
+
+        self.start('Use distance to convert received power to radar cross section',
+            'Monostatic radar equation with linear gains and total linear loss L. Assumes far-field monostatic geometry and stated transmitter/receiver calibration. Effective R is fitted range or explicit override. Individual RX results use own noise and matched power; beam uses ideal four-channel gain, approximate with unequal/correlated RX.')
+        self.content([
+            r'\sigma=\frac{P_r(4\pi)^3R^4 L}{P_tG_tG_r\lambda^2}',
+        ],[
+            'σ: radar cross section, in square metres. R: radar-to-projectile distance.',
+            'Pt: transmitted power. Gt and Gr: transmit and receive gains, in linear units.',
+            'λ: radar wavelength. L: total loss factor (1 means no loss).',
+            'Compute separately for each receiver, using its own SNR and noise estimate.',
+            'For four-RX beamforming, divide out the assumed ideal gain of four.',
+            'Absolute RCS depends on the assumed temperature, gains, losses and distance.',
+        ])
+
+        self.start('Find every metallic-sphere diameter consistent with that RCS',
+            'Mie theory gives the electromagnetic scattering of an ideal perfectly conducting sphere. Compare predicted monostatic cross section with inferred cross section; all crossings inside the user diameter bounds are reported. Multiple diameters can produce one cross section. Same inversion per RX and beam result. Synthetic 77GHz illustration; not a measured projectile.')
+        self.play(FadeIn(self.demo_image('mie_diameter',11.8).move_to(UP*.25)))
+        self.play(FadeIn(self.prose('Mie theory predicts RCS versus diameter; each crossing is a possible diameter.',27).move_to(DOWN*2.55)))
+        self.play(FadeIn(self.prose('Use diameter bounds or other evidence to choose among multiple solutions.',26,MUTED).move_to(DOWN*3.1)))
         self.wait(1)
 
         self.start('Select background. Select analysis. Press Play.',
