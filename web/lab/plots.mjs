@@ -112,6 +112,7 @@ export class Heatmap {
       band.append(handle);
     }
     this.root.append(band);
+    band.addEventListener("dragstart", (event) => event.preventDefault());
     const at = (event) => {
       const rect = this.pixels.getBoundingClientRect();
       return (
@@ -123,6 +124,9 @@ export class Heatmap {
     band.addEventListener("pointerdown", (event) => {
       if (event.button !== 0 || !options.enabled()) return;
       event.preventDefault();
+      event.stopPropagation();
+      window.getSelection()?.removeAllRanges();
+      document.documentElement.classList.add("plot-window-dragging");
       const [start, stop] = options.getRange();
       this.windowDrag = {
         pointer: event.pointerId,
@@ -137,6 +141,7 @@ export class Heatmap {
     band.addEventListener("pointermove", (event) => {
       const drag = this.windowDrag;
       if (!drag || drag.pointer !== event.pointerId) return;
+      event.preventDefault();
       const delta = Math.round(at(event) - drag.anchor);
       let start = drag.start,
         stop = drag.stop;
@@ -157,6 +162,7 @@ export class Heatmap {
       const drag = this.windowDrag;
       if (!drag || event.pointerId !== drag.pointer) return;
       this.windowDrag = null;
+      document.documentElement.classList.remove("plot-window-dragging");
       band.classList.remove("dragging");
       if (band.hasPointerCapture(event.pointerId))
         band.releasePointerCapture(event.pointerId);
@@ -169,6 +175,7 @@ export class Heatmap {
     };
     band.addEventListener("pointerup", (event) => finish(event));
     band.addEventListener("pointercancel", (event) => finish(event, true));
+    band.addEventListener("lostpointercapture", (event) => finish(event, true));
     band.addEventListener("keydown", (event) => {
       if (
         !["ArrowLeft", "ArrowRight"].includes(event.key) ||

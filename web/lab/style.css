@@ -292,6 +292,13 @@ footer {
   background: #78b7ff14;
   cursor: grab;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.heatmap, .heatmap *, .plot-window-dragging, .plot-window-dragging * {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
 }
 .background-window[hidden] {
   display: none;

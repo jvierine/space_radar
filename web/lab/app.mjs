@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009j";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009k";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009j", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009k", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -212,7 +212,9 @@ function customView() {
     `Custom view · ${state.stop - state.start} chirps`;
 }
 function invalidate() {
+  const hadResult = !!result;
   result = undefined;
+  $("progress").value = 0;
   vx.root.style.display = "none";
   vy.root.style.display = "none";
   fit.root.style.display = "none";
@@ -221,7 +223,9 @@ function invalidate() {
   scan.root.style.display = "none";
   $("compareResults").innerHTML = "";
   $("matchSummary").textContent =
-    "Settings changed: run a search to update the filter maps.";
+    hadResult
+      ? "Previous fit cleared because the window or filter settings changed. Click Search selected train to calculate the new fit."
+      : "No fit calculated for this train. Click Search selected train.";
 }
 function updateSelection() {
   for (const m of maps) m.overlay({ bands: bands() });
