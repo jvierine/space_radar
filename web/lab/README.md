@@ -32,7 +32,7 @@ Prepared data and QA products are ignored by Git; raw captures are not bundled.
   with no FFT or matched decoding. Select its real or imaginary component.
 - The quiet interval is user-selected, not an automatically identified trigger.
   A complex mean is formed per fast-time sample over intact quiet chirps. The
-  Spectrum plot: drag the blue Background window to move it or its edges to
+  All three colour plots share one interval: drag the blue Background window to move it or its edges to
   resize; release to recompute. Focus its buttons and use arrow keys (Shift
   for ten chirps) for precise adjustment. The
   SAME mean is subtracted from all displayed and analyzed chirps.

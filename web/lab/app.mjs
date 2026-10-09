@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009d";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009e";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009d", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009e", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -81,21 +81,22 @@ const iq = new LinePlot("iqPlot"),
   spectrum = new LinePlot("spectrumPlot"),
   fit = new LinePlot("fitPlot"),
   scan = new LinePlot("scanPlot", (k) => selectChirp(Math.round(k)));
-maps[2].enableWindow({
-  getRange: () => [num("bgStart"), num("bgStop")],
-  enabled: () => loaded && !busy,
-  limit: () => meta.total_chirps,
-  preview: (start, stop) => {
-    $("bgStart").value = start;
-    $("bgStop").value = stop;
-    maps.forEach((map) => map.overlay({ bands: bands() }));
-  },
-  commit: () => {
-    invalidate();
-    status("Updating the complex background mean…");
-    $("background").click();
-  },
-});
+for (const map of maps)
+  map.enableWindow({
+    getRange: () => [num("bgStart"), num("bgStop")],
+    enabled: () => loaded && !busy,
+    limit: () => meta.total_chirps,
+    preview: (start, stop) => {
+      $("bgStart").value = start;
+      $("bgStop").value = stop;
+      maps.forEach((map) => map.overlay({ bands: bands() }));
+    },
+    commit: () => {
+      invalidate();
+      status("Updating the complex background mean…");
+      $("background").click();
+    },
+  });
 function common() {
   return {
     x0: state.start,
