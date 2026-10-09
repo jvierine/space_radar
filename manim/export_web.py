@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 
 DECKS = {
+    "RadialFFTSearch": ("radial-fft", "Radial FFT matched filtering and laboratory GUI"),
     "FMCWSpaceRadar": ("fmcw-space-radar", "FMCW space radar: power, scattering, integration and chamber data"),
     "RadarEquationNoise": ("radar-equation-noise", "Radar equation, thermal noise and coherent integration"),
 }
@@ -37,7 +38,7 @@ def export(scene, root):
         cap.release()
         if not ok:
             raise RuntimeError(f"Unreadable slide: {scene} {number}")
-        fraction = (np.max(np.abs(frame.astype(np.int16) - [31, 17, 7]), axis=2) > 18).mean()
+        fraction = (np.max(np.abs(frame.astype(np.int16) - frame[0, 0].astype(np.int16)), axis=2) > 18).mean()
         if fraction < 0.01:
             raise RuntimeError(f"Blank slide ending: {scene} {number}")
         picture = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))

@@ -45,3 +45,21 @@ Presenter notes contain further assumptions and primary-source links. The
 figure manifest in `../output/figure_provenance.json` maps each bundled plot
 to its generating script. Rendered movies and HTML exports are generated
 locally and excluded from Git; published browser assets remain at juha.no.
+
+## Radial FFT search and GUI
+
+`radial_fft_search.py` is a separate 14-slide white-background deck. It explains
+midpoint radial coordinates, the implemented phase, correction-plus-FFT search,
+noise bandwidth, and graphical selections/results/export. All illustrated
+trajectories and phasors are synthetic. Source footers default on; set
+`SHOW_PROVENANCE=0` to hide them.
+
+```bash
+conda run -n base python radial_fft_assets.py
+conda run --no-capture-output -n base manim-slides render --disable_caching -r 1920,1080 --fps 30 radial_fft_search.py RadialFFTSearch
+conda run -n base python export_web.py qa_fmcw_web RadialFFTSearch
+```
+
+From the repository root, `conda run -n base python tools/radial_complexity.py`
+regenerates `manim/assets/radial_complexity.h5` for memo 10. The shipped planner
+counts are independently checked by `node tools/validate_complexity_counts.mjs`.
