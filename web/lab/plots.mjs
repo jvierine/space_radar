@@ -1,5 +1,5 @@
-import {drawMath,ensureMath} from './math-labels.mjs?v=20261009zeroaxes14';
-import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009zeroaxes14';
+import {drawMath,ensureMath} from './math-labels.mjs?v=20261009zeroaxes15';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009zeroaxes15';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",
@@ -599,7 +599,7 @@ export class LinePlot {
       y0 = c.y0 ?? (values.length?Math.min(...values):0),
       y1 = c.y1 ?? (values.length?Math.max(...values):1);
     if (y0 === y1) {
-      y0--;
+      if (c.y0 === undefined) y0--;
       y1++;
     }
     const pad = c.y0 === undefined ? (y1 - y0) * 0.08 : 0;

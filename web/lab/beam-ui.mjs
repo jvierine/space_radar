@@ -1,6 +1,6 @@
-import {restoreControls} from './gui-state.mjs?v=20261009zeroaxes14';
-import {Heatmap} from './plots.mjs?v=20261009zeroaxes14';
-import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes14';
+import {restoreControls} from './gui-state.mjs?v=20261009zeroaxes15';
+import {Heatmap} from './plots.mjs?v=20261009zeroaxes15';
+import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes15';
 const section=document.createElement('section');
 section.className='card';
 section.innerHTML=`<h2>Four-antenna coherent beamforming</h2>
@@ -37,7 +37,7 @@ restoreControls(section);
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
 const pairs=[[1,2,3],[1,3,2],[2,3,1]];
 const maps=pairs.map(([x,y])=>new Heatmap(`beamPlot${x}${y}`));
-const worker=new Worker('beam-worker.mjs?v=20261009zeroaxes14',{type:'module'});
+const worker=new Worker('beam-worker.mjs?v=20261009zeroaxes15',{type:'module'});
 let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null,pendingAutomatic=false;
 function renderRcs() {
  if(!lastBeam || !current)return;

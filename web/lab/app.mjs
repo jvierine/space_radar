@@ -1,9 +1,9 @@
-import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes14';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009zeroaxes14';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009zeroaxes14";
+import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes15';
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009zeroaxes15';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009zeroaxes15";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261009zeroaxes14", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009zeroaxes15", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -830,7 +830,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261009zeroaxes14',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261009zeroaxes15',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};
