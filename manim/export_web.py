@@ -76,6 +76,8 @@ def export(scene, root):
     guard_name = "navigation-" + hashlib.sha256(guard).hexdigest()[:12] + ".js"
     (dest / "index_assets" / guard_name).write_bytes(guard)
     page = page.replace("</body>", f'<script src="index_assets/{guard_name}"></script>\n</body>')
+    if scene == "RadialFFTSearch":
+        page = page.replace("</body>", '<a href="https://juha.no/fmcw/lab/" target="_blank" rel="noopener" style="position:fixed;right:18px;top:14px;z-index:1000;background:white;color:#176BB0;padding:8px 12px;border:1px solid #176BB0;border-radius:6px;font:16px Arial;text-decoration:none">Open laboratory ↗</a>\n</body>')
     (dest / "index.html").write_text(page)
     print(f"{scene}: {len(frames)} nonblank slide endings; exported to {dest}", flush=True)
 

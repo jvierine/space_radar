@@ -104,7 +104,7 @@ See [simulator model and units](web/sim/README.md).
 
 | Source | Scene | Content |
 | --- | --- | --- |
-| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **14 slides:** r0/v0/a0, correction + FFT, automatic grid, noise bandwidth and the GUI |
+| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **12 slides:** r0/v0/a0, correction + FFT, automatic grid and the GUI |
 | [`manim/fmcw_space_radar.py`](manim/fmcw_space_radar.py) | `FMCWSpaceRadar` | 47-slide radar lecture, simulations and measured examples |
 | [`manim/radar_equation_noise.py`](manim/radar_equation_noise.py) | `RadarEquationNoise` | Radar equation, thermal noise and coherent integration |
 
@@ -121,7 +121,8 @@ conda run --no-capture-output -n base python -m http.server 18766 --bind 127.0.0
 Open **http://127.0.0.1:18766/radial-fft/**. Manim needs FFmpeg, LaTeX and dvisvgm;
 Python dependencies are in [`requirements.txt`](requirements.txt). The exporter
 checks every slide's final decoded frame and installs the final-slide guard.
-Source footers are visible by default (`SHOW_PROVENANCE=0` hides them).
+The new radial deck includes an **Open laboratory** link; detailed derivations
+remain in the memos. The older lecture decks retain their provenance footers.
 See [slide sources and rendering](manim/README.md).
 
 ## Scientific reference code and data

@@ -48,11 +48,11 @@ locally and excluded from Git; published browser assets remain at juha.no.
 
 ## Radial FFT search and GUI
 
-`radial_fft_search.py` is a separate 14-slide white-background deck. It explains
-midpoint radial coordinates, the implemented phase, correction-plus-FFT search,
-noise bandwidth, and graphical selections/results/export. All illustrated
-trajectories and phasors are synthetic. Source footers default on; set
-`SHOW_PROVENANCE=0` to hide them.
+`radial_fft_search.py` is a separate 12-slide white-background deck. It explains
+the three motion parameters, straight-line geometry, phase alignment,
+correction-plus-FFT search, per-receiver noise estimation, explained matched
+powers and map projections, and graphical selections/results/export. All illustrated
+trajectories and phasors are synthetic. The slides link to the laboratory; technical derivations remain in the memos.
 
 ```bash
 conda run -n base python radial_fft_assets.py
