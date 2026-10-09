@@ -233,7 +233,7 @@ class RadialFFTSearch(Slide):
         self.wait(1)
 
         self.start('What our Rust / WebGPU implementation actually does',
-            'Source: lab-core/src/fft_search.rs transform/search_cell, web/lab/gpu.mjs. Each acceleration plane has bounded velocity correction groups. Fast FFT per chirp, sparse slow FFT over selected frequency columns; physical node mapping handles aliases within user bounds. Add four RX powers for each I/Q orientation. Verify candidate nodes with full quadratic FMCW templates and refine. CPU fallback.')
+            'Source: lab-core/src/radial_search.rs spectrum/group_plan, web/lab/gpu-radial.mjs. Each acceleration plane has bounded velocity correction groups. Fast FFT per chirp, sparse slow FFT over selected frequency columns; physical node mapping handles aliases within user bounds. Add four RX powers for each I/Q orientation. Verify candidate nodes with full quadratic FMCW templates and refine. CPU fallback.')
         rows=VGroup(*[self.prose(line,29,col) for line,col in [
             ('1. Build correction groups across the allowed acceleration and velocity bounds.',FG),
             ('2. For each receiver: multiply samples by the conjugate correction.',ORANGE),

@@ -2,6 +2,7 @@
 The cost comparison is analytical; no equivalent zero-filled FFT benchmark is claimed.
 """
 from manim import *
+BLUE, ORANGE, PURPLE, MUTED = '#176BB0', '#B55A00', '#7939A8', '#556575'
 
 
 def integration_slides(s):
@@ -19,30 +20,85 @@ def integration_slides(s):
         'A correct echo template maximizes SNR under white temporal noise.',
         'Colored temporal noise requires whitening; our current filter assumes white noise.',
     ])
-    s.start('Two FFTs or one long FFT: which is faster?',
-        'Costs per receiver per correction, omitting common preprocessing: fast FFTs K Lf log2 Lf, slow FFTs M Ls log2 Ls; M needed fast-frequency columns. One continuous-tone FFT with zeros at unobserved times costs Lgap log2 Lgap. These costs alone do not compare equivalent full range-velocity-acceleration banks: FMCW resets give different fast/slow frequencies, so a one-frequency approach needs additional range-dependent correction or another parameter loop. Long FFT uniform timing also needs special treatment since period*fs=317.125; ordinary zero insertion cannot encode fractional sample starts. No end-to-end comparative benchmark exists. Earlier timing compares one toy FFT with direct sums only. Both sums have same ideal SNR; temporal colored noise calls for C inverse q.')
-    s.content([
-        r'\text{two axes: }O(KL_f\log_2L_f+ML_s\log_2L_s)',
-        r'\text{one gapped time axis: }O(L_{\rm gap}\log_2L_{\rm gap})',
-    ],[
-        'K: acquired chirps. Lf and Ls: padded FFT lengths. M: needed frequency columns.',
-        'L(gap): padded length including the unobserved time intervals.',
-        'Two axes avoid filling idle gaps and preserve the chirp-reset timing.',
-        'One long FFT needs a continuous-tone model and a uniform time grid.',
-        'Our chirp period is 317.125 sample intervals: simple zero insertion is insufficient.',
-        'Which is faster for equivalent searches? Not benchmarked yet.',
-        'The earlier toy timing compares FFT with direct sums, not these two methods.',
-    ])
-    s.start('An eight-chirp complexity estimate',
-        'Illustrative arithmetic per RX, I/Q orientation and correction group. Actual code Nfast=nextpow2(8*225)=2048, Nslow=nextpow2(8*8)=64. Work units L log2 L: two-stage 180224+384M. At fs12.5MHz and P25.37us, gapped duration spans 7*317.125+225=2444.875 sample intervals. Eightfold padded long FFT nextpow2(8*2444.875)=32768, work491520. M329 is illustrative, not measured group size: cost306560, ratio1.603. All2048 columns cost966656, long cheaper1.967. Excludes scoring, corrections, fractional sample start handling and hardware overhead. Long FFT uses a different bank structure, so this is not an equivalent full-pipeline runtime estimate.')
-    s.content([
-        r'K=8,\quad N=225,\quad L_f=2048,\quad L_s=64',
-        r'W_{\rm 2D}=180224+384M,\qquad W_{\rm long}=491520',
-    ],[
-        'Assume eightfold padding; count L log2(L) work, per RX and correction.',
-        '329 needed columns: 306,560 units → about 1.6 times less FFT work.',
-        'All 2,048 columns: 966,656 units → long FFT costs about half as much.',
-        'Sparse second-stage columns are the useful computational saving.',
-        'This estimates FFT arithmetic, not the full range / velocity / acceleration bank.',
-        'Corrections, scoring, fractional timing and hardware overhead are excluded.',
-    ])
+    s.start('First FFT: every bin. Second FFT: the columns we need.',
+        'Schematic, not measured data. Rows are chirps; columns are within-chirp frequency bins. Every row FFT computes every bin and retains complex values. The physical range/velocity grid maps to fast-frequency bins modulo the sampling rate. Deduplicate that list, then FFT every requested column across all acquired chirps. No selection by peak height. Aliasing is included in the modulo mapping; it is not why arbitrary columns can be discarded.')
+    cells=VGroup()
+    selected=[2,3,4,5]
+    for k in range(4):
+        for j in range(10):
+            cell=Rectangle(width=.62,height=.5,stroke_color=MUTED,
+                fill_color=BLUE if j in selected else '#DEE5EB',fill_opacity=.45).move_to([-4.7+j*.67,1.6-k*.6,0])
+            cells.add(cell)
+    row_labels=VGroup(*[s.prose(f'Chirp {k+1}',20).move_to([-6,1.6-k*.6,0]) for k in range(4)])
+    s.play(FadeIn(cells),FadeIn(row_labels))
+    arrows=VGroup(*[Arrow([-5.1,1.6-k*.6,0],[1.7,1.6-k*.6,0],color=ORANGE,buff=0,stroke_width=3) for k in range(4)])
+    s.play(LaggedStart(*[GrowArrow(a) for a in arrows],lag_ratio=.25))
+    s.play(FadeOut(arrows))
+    s.play(FadeIn(s.prose('All frequency bins',25).move_to([-1.7,2.25,0])))
+    vertical=VGroup(*[Arrow([-4.7+j*.67,1.95,0],[-4.7+j*.67,-.65,0],color=BLUE,buff=0) for j in selected])
+    s.play(*[GrowArrow(a) for a in vertical])
+    box=RoundedRectangle(width=3.3,height=1.4,stroke_color=BLUE).move_to([4,.7,0])
+    label=VGroup(s.prose('FFT across chirps',25,BLUE),s.prose('Keep complex phase',22)).arrange(DOWN,buff=.25).move_to(box)
+    s.play(FadeIn(box),FadeIn(label),GrowArrow(Arrow([1.9,.7,0],[2.3,.7,0],buff=0,color=BLUE)))
+    rows=VGroup(s.prose('Blue columns: every bin requested by the range–velocity grid.',27,BLUE),
+        s.prose('Grey columns: computed by the first FFT, unused by this search.',25),
+        s.prose('Selection follows the physical search bounds, never signal strength.',25),
+        s.prose('All chirps contribute coherently to every selected column.',26)).arrange(DOWN,buff=.28).move_to(DOWN*2.15)
+    s.play(FadeIn(rows));s.wait(1)
+
+    s.start('One beat frequency cannot separate range and velocity',
+        'FMCW range-Doppler coupling. In our IQ convention, corrected fast frequency = slow frequency - 2 gamma r0/c. Approximate slow frequency = -2 fc v0/c, fc=f0+gamma mean fast time. Exact implemented slow expression has the small delay-squared range term: (-2fc/c+4gamma r0/c^2)*v0. Graphic is a synthetic constant-fast-frequency contour, approximately linear. Along the contour range compensates Doppler. These relations describe the corrected separable template, not a claim that an uncorrected accelerating signal is an exact tone.')
+    axes=Axes(x_range=[.7,1.3,.2],y_range=[0,600,200],x_length=6.1,y_length=3.1,
+        axis_config={'color':MUTED,'include_tip':False}).move_to([-2.7,.35,0])
+    line=Line(axes.c2p(1.2,0),axes.c2p(.732,600),color=ORANGE,stroke_width=5)
+    labels=VGroup(s.prose('Range r0 (m)',23).next_to(axes,DOWN),s.prose('Velocity v0 (m/s)',23).next_to(axes,UP))
+    s.play(Create(axes),FadeIn(labels),Create(line))
+    dot=Dot(axes.c2p(1.2,0),color=ORANGE)
+    s.play(FadeIn(dot));s.play(MoveAlongPath(dot,line),run_time=2.5)
+    equations=VGroup(s.eq(r'f_{\rm fast}\simeq-\frac{2\gamma r_0}{c}-\frac{2f_c v_0}{c}',32),
+        s.prose('One measured frequency:',25,ORANGE),s.prose('many range–velocity pairs.',25,ORANGE)).arrange(DOWN,buff=.4).move_to([3.65,.5,0])
+    s.play(FadeIn(equations))
+    rows=VGroup(s.prose('Orange line: different targets with the same within-chirp beat frequency.',25),
+        s.prose('gamma: chirp slope. fc: carrier near the sampled chirp midpoint.',24),
+        s.prose('c: speed of light. The sign follows our complex I/Q convention.',24)).arrange(DOWN,buff=.3).move_to(DOWN*2.65)
+    s.play(FadeIn(rows));s.wait(1)
+
+    s.start('Across-chirp phase gives velocity — but it wraps',
+        'Schematic candidate intersections, not measured ambiguity function. Uniform chirp starts separated by P give fslow modulo 1/P. Fast frequencies also wrap modulo fs. Approximate velocity alias interval c/(2fcP), about76m/s here. A fixed fast-frequency contour intersects each possible slow-frequency alias, leaving several range/velocity candidates. Bounds remove impossible candidates but do not guarantee uniqueness. A correction-bank full waveform comparison can reject approximate aliases when distinguishable residual phase exists, but cannot break exact sampled-data ambiguity. Additional PRI, slope diversity or external information is needed if multiple candidates remain equivalent.')
+    axes=Axes(x_range=[.7,1.3,.2],y_range=[0,600,200],x_length=6.1,y_length=3.1,
+        axis_config={'color':MUTED,'include_tip':False}).move_to([-2.7,.35,0])
+    line=Line(axes.c2p(1.2,0),axes.c2p(.732,600),color=ORANGE,stroke_width=4)
+    s.play(Create(axes),Create(line))
+    s.play(FadeIn(s.prose('Range r0',22).next_to(axes,DOWN)),FadeIn(s.prose('Velocity v0',22).next_to(axes,UP)))
+    levels=VGroup();dots=VGroup()
+    for v in [40,116,192,268,344,420,496,572]:
+        levels.add(DashedLine(axes.c2p(.7,v),axes.c2p(1.3,v),color=BLUE))
+        dots.add(Dot(axes.c2p(1.2-.00078*v,v),color=PURPLE,radius=.065))
+    s.play(LaggedStart(*[Create(a) for a in levels],lag_ratio=.15),run_time=2)
+    s.play(FadeIn(dots))
+    explanation=VGroup(s.prose('Blue: possible velocity aliases.',24,BLUE),
+        s.prose('Purple: candidate solutions.',24,PURPLE),
+        s.eq(r'f_{\rm slow}=\hat f_{\rm slow}+m/P',32),
+        s.prose('m is an integer; P is chirp spacing.',22),
+        s.eq(r'\Delta v\simeq\frac{c}{2f_cP}\approx76\ \mathrm{m/s}',30)).arrange(DOWN,buff=.32).move_to([3.6,.4,0])
+    s.play(FadeIn(explanation))
+    rows=VGroup(s.prose('Test every candidate inside the bounds against the full echo template.',25),
+        s.prose('Bounds and waveform details can reject candidates; uniqueness is not guaranteed.',24),
+        s.prose('Still ambiguous? Use different chirp spacings / slopes, or independent information.',24,BLUE)).arrange(DOWN,buff=.28).move_to(DOWN*2.65)
+    s.play(FadeIn(rows));s.wait(1)
+
+    s.start('Our choice: the sparse two-stage FFT',
+        'Recommendation for this analyzer: keep the sparse two-stage implementation. Arithmetic model per RX and correction, not measured end-to-end runtime. K acquired chirps, Lf fast FFT length, Ls slow FFT length, M unique requested fast bins per correction group. Long comparator includes missing-time intervals and assumes an equivalent continuous-tone correction can be constructed. M329 is illustrative, not a measured group count. Eightfold padding gives K8,Lf2048,Ls64,Lgap32768: sparse306560 versus long491520 Llog2L units. Do not claim full-bank timing or extra SNR from factorization.')
+    names=['Every chirp → FFT','Needed columns → FFT','Keep complex matched sums']
+    boxes=VGroup(*[RoundedRectangle(width=3.9,height=1.1,stroke_color=BLUE).move_to([x,1.55,0]) for x in [-4.3,0,4.3]])
+    s.play(FadeIn(boxes),*[FadeIn(s.prose(name,23,BLUE).move_to(box)) for name,box in zip(names,boxes)])
+    s.play(*[GrowArrow(Arrow([x,1.55,0],[x+.35,1.55,0],buff=0,color=MUTED)) for x in [-2.3,2]])
+    formula=s.eq(r'W=K L_f\log_2L_f+M L_s\log_2L_s',40).move_to(UP*.05)
+    s.play(Write(formula))
+    rows=VGroup(s.prose('K: chirps. Lf: fast FFT length. Ls: across-chirp FFT length.',24),
+        s.prose('M: unique frequency columns requested by the physical grid.',24),
+        s.prose('Example: 8 chirps, 329 columns → about 1.6 times less FFT work',26,BLUE),
+        s.prose('than a gap-filled long FFT with comparable padding.',24,BLUE),
+        s.prose('This is an arithmetic estimate; end-to-end runtime has not been compared.',23),
+        s.prose('The saving is unused-column work and idle gaps, not a change in coherent SNR.',23)).arrange(DOWN,buff=.24).move_to(DOWN*1.95)
+    s.play(FadeIn(rows));s.wait(1)
