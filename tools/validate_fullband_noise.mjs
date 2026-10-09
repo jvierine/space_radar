@@ -18,4 +18,16 @@ assert(Math.abs(best[3]/(signal/(prepared.noisePower.reduce((a,b)=>a+b,0)*energy
 const projected=projectReceivers(receivers,q,{...options,conjugated:best[4]>0}),beam=phaseSearch(projected.event,projected.noise,10,projected.noiseCovariance);
 let rawBeamPower=0;for(let j=0;j<225;j++){let re=0,im=0;for(let a=0;a<4;a++){const i=2*(3648*225+j),c=Math.cos(beam.phases[a])/2,s=Math.sin(beam.phases[a])/2;re+=c*receivers[a][i]-s*receivers[a][i+1];im+=s*receivers[a][i]+c*receivers[a][i+1];}rawBeamPower+=re*re+im*im;}
 assert(Math.abs(beam.reference/(rawBeamPower/225*energy)-1)<1e-8);
+for(let a=0;a<4;a++){
+ assert(Math.abs(beam.single[a]/(beam.channelPower[a].observed/(prepared.noisePower[a]*energy))-1)<1e-6);
+ assert(Math.abs(projected.rawNoisePower[a]/prepared.noisePower[a]-1)<1e-6);
+}
+const changed=receivers.map(z=>z.slice());
+for(let j=0;j<450;j++)changed[1][2*3648*225+j]*=3;
+const changedNoise=prepareReceiverTrains(changed,options);
+for(let a=0;a<4;a++)assert(Math.abs(changedNoise.noisePower[a]/prepared.noisePower[a]-(a===1?9:1))<1e-5,'Changing RX1 background changes only RX1 noise estimate');
+// Unequal receiver noise must yield unequal SNRs even for equal signal powers.
+const unequal=new Float64Array(32);for(let a=0;a<4;a++)unequal[2*(4*a+a)]=[1,4,9,16][a];
+const independent=phaseSearch([10,0,10,0,10,0,10,0],[],4,unequal);
+assert.deepEqual(independent.single,[100,25,100/9,6.25]);
 console.log('PASS: one raw chirp, full-bandwidth complex sample power, exact matched-filter noise scaling, and beamformed raw covariance normalization');

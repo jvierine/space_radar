@@ -1,4 +1,4 @@
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009noisepower9';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009rxnoise10';
 export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.
@@ -131,7 +131,7 @@ export function phaseSearch(event, noise, steps = 10,covariance=null) {
 }
 
 export function projectReceivers(receivers, q, {samples, rows, perFrame, start, pulses, bgStart, bgStop, noiseStart, noiseStop, conjugated,fullBandwidth=false}) {
-  const {means,meanCounts,referenceStarts,noiseCovariance}=prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop,fullBandwidth});
+  const {means,meanCounts,referenceStarts,noiseCovariance,noiseSamples}=prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop,fullBandwidth});
   const project=(k,subtractMean=true)=>{
     const out=new Float64Array(8);
     for(let a=0;a<4;a++)for(let n=0;n<pulses;n++)for(let j=0;j<samples;j++){
@@ -143,5 +143,5 @@ export function projectReceivers(receivers, q, {samples, rows, perFrame, start, 
     return out;
   };
   const energy=q.reduce((sum,v)=>sum+v*v,0);
-  return {event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
+  return {rawNoisePower:noiseCovariance?Float64Array.from({length:4},(_,a)=>noiseCovariance[2*(4*a+a)]):undefined,noiseSamples,event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
 }

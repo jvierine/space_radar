@@ -20,6 +20,8 @@ export async function writeAnalysis(h5,payload) {
       dataset(history,'r0_v0_a0',points.flatMap(p=>p.kinematics),[N,3]);
       attr(history,'r0_v0_a0_units',['m','m/s','m/s^2']);
       dataset(history,'single_rx_matched_to_quiet',points.flatMap(p=>Array.from(p.beam.single)),[N,4]);
+      dataset(history,'raw_noise_power_adc2',points.flatMap(p=>Array.from(p.beam.rawNoisePower??[NaN,NaN,NaN,NaN])),[N,4]);
+      dataset(history,'matched_noise_power',points.flatMap(p=>p.beam.channelPower?.map(c=>c.quiet)??[NaN,NaN,NaN,NaN]),[N,4]);
       dataset(history,'beam_matched_to_quiet',points.map(p=>p.beam.peak));
       dataset(history,'phases_rad',points.flatMap(p=>Array.from(p.beam.phases)),[N,4]);
       dataset(history,'rcs_m2',points.flatMap(p=>p.rcs.map(r=>r.sigma)),[N,5]);

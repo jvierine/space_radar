@@ -1,6 +1,6 @@
-import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009noisepower9';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009noisepower9';
-import {runRadial} from './radial-backend.mjs?v=20261009noisepower9';
+import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009rxnoise10';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009rxnoise10';
+import {runRadial} from './radial-backend.mjs?v=20261009rxnoise10';
 let wasm,
   meta,
   data,
@@ -212,7 +212,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009noisepower9"),
+        fetch("core.wasm?v=20261009rxnoise10"),
         {},
       );
       wasm = result.instance.exports;
@@ -267,6 +267,7 @@ onmessage = async ({ data: msg }) => {
             const q=copy();let sum=0,energy=0;
             for(let i=0;i<q.length;i+=2){const a=Math.hypot(q[i],q[i+1]);sum+=a;energy+=a*a;}
             candidate.beam.effectiveTime=sum*sum/(p.fs*energy);
+            candidate.beam.rawNoisePower=projections.rawNoisePower;candidate.beam.noiseSamples=projections.noiseSamples;
             candidate.beam.referenceStarts=projections.referenceStarts;candidate.beam.meanCount=projections.meanCount;
             candidate.scanPoint=true;send('match',{result:candidate});
             scan.push(start,candidate.best[3],...candidate.best.slice(0,3));

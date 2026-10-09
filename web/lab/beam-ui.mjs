@@ -1,5 +1,5 @@
-import {restoreControls} from './gui-state.mjs?v=20261009noisepower9';
-import {Heatmap} from './plots.mjs?v=20261009noisepower9';
+import {restoreControls} from './gui-state.mjs?v=20261009rxnoise10';
+import {Heatmap} from './plots.mjs?v=20261009rxnoise10';
 import {estimateRcs,diameterRoots} from './rcs.mjs?v=20261009rcs1';
 const section=document.createElement('section');
 section.className='card';
@@ -37,7 +37,7 @@ restoreControls(section);
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
 const pairs=[[1,2,3],[1,3,2],[2,3,1]];
 const maps=pairs.map(([x,y])=>new Heatmap(`beamPlot${x}${y}`));
-const worker=new Worker('beam-worker.mjs?v=20261009noisepower9',{type:'module'});
+const worker=new Worker('beam-worker.mjs?v=20261009rxnoise10',{type:'module'});
 let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null,pendingAutomatic=false;
 function renderRcs() {
  if(!lastBeam || !current)return;
@@ -80,7 +80,7 @@ worker.onmessage=({data:m})=>{
  status.textContent=`RX phases: ${r.phases.map(p=>(p*180/Math.PI).toFixed(1)+'°').join(', ')} · grid ${db(r.gridPeak).toFixed(2)} → refined ${peak.toFixed(2)} dB${r.refinement.converged?'':' · refinement limit'}`;
  section.querySelector('#beamTable').innerHTML=`<table><thead><tr><th>Receiver / combination</th><th>Background-referenced matched energy (dB)</th></tr></thead><tbody>${single.map((v,i)=>`<tr><td>RX${i}</td><td>${v.toFixed(2)}</td></tr>`).join('')}<tr><td>Four-RX phase grid peak</td><td>${db(r.gridPeak).toFixed(2)}</td></tr><tr><td>Nelder–Mead refined four-RX phases</td><td>${peak.toFixed(2)}</td></tr></tbody></table>`;
  const format=(v,d=2)=>Number.isFinite(v)?v.toFixed(d):'—';
- section.querySelector('#beamDiagnostics').innerHTML=`<table><thead><tr><th>Receiver</th><th>Observed matched power (ADC projection²)</th><th>Raw quiet matched power (ADC projection²)</th><th>Observed / RX0 (dB)</th><th>Quiet / RX0 (dB)</th></tr></thead><tbody>${r.channelPower.map((p,i)=>`<tr><td>RX${i}</td><td>${p.observed.toExponential(3)}</td><td>${p.quiet.toExponential(3)}</td><td>${format(db(p.observed/r.channelPower[0].observed))}</td><td>${format(db(p.quiet/r.channelPower[0].quiet))}</td></tr>`).join('')}</tbody></table>`;
+ section.querySelector('#beamDiagnostics').innerHTML=`<table><thead><tr><th>Receiver</th><th>Raw noise power (ADC²)</th><th>Observed MF power</th><th>Expected MF noise power</th><th>Channel SNR (dB)</th></tr></thead><tbody>${r.channelPower.map((p,i)=>`<tr><td>RX${i}</td><td>${r.rawNoisePower?.[i]?.toExponential(3)??'—'}</td><td>${p.observed.toExponential(3)}</td><td>${p.quiet.toExponential(3)}</td><td>${format(db(r.single[i]))}</td></tr>`).join('')}</tbody></table>`;
  section.querySelector('#beamTotal').textContent=`Total gain: ${format(db(r.total.gain))} dB · ${format(r.total.percentIdeal,1)}% of ideal 6.02 dB. Baseline: ${format(db(r.total.singleAverage))} dB (four-RX linear average).`;
  section.querySelector('#beamGrowth').innerHTML=`<table><thead><tr><th>Receivers</th><th>Matched energy / quiet (dB)</th><th>Added gain (dB)</th><th>Ideal added gain (dB)</th><th>% of ideal increment</th></tr></thead><tbody>${r.growth.map(g=>`<tr><td>${g.count===1?'RX0':`RX0–RX${g.count-1} (+RX${g.count-1})`}</td><td>${format(db(g.score))}</td><td>${g.count>1?format(db(g.gain)):'—'}</td><td>${g.count>1?format(db(g.idealGain)):'—'}</td><td>${g.count>1?format(g.percentIdeal,1):'—'}</td></tr>`).join('')}</tbody></table>`;
  results.hidden=false;

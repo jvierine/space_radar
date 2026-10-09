@@ -1,4 +1,4 @@
-import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009noisepower9';
+import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009rxnoise10';
 const cache=new Map();
 async function channel(spec){
  if(cache.has(spec.sha256))return cache.get(spec.sha256);
@@ -17,7 +17,7 @@ onmessage=async({data:job})=>{
   if(meta.transport.length!==4)throw Error('This phase search requires four synchronized receivers.');
   postMessage({id:job.id,type:'progress',text:'Loading and verifying four synchronized receiver streams…'});
   const receivers=await Promise.all(meta.transport.map(channel));
-  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009noisepower9'),{})).instance.exports;
+  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009rxnoise10'),{})).instance.exports;
   const p=meta.parameters;
   const ptr=engine.allocate(2*meta.samples);
   new Float32Array(engine.memory.buffer,ptr,2*meta.samples).fill(0);
@@ -30,6 +30,6 @@ onmessage=async({data:job})=>{
   let amplitudeSum=0,energy=0;
   for(let i=0;i<q.length;i+=2){const amplitude=Math.hypot(q[i],q[i+1]);amplitudeSum+=amplitude;energy+=amplitude*amplitude;}
   const effectiveTime=amplitudeSum**2/(p.fs*energy);
-  postMessage({id:job.id,type:'result',result:{...result,effectiveTime,referenceStarts:projections.referenceStarts,meanCount:projections.meanCount}});
+  postMessage({id:job.id,type:'result',result:{...result,rawNoisePower:projections.rawNoisePower,noiseSamples:projections.noiseSamples,effectiveTime,referenceStarts:projections.referenceStarts,meanCount:projections.meanCount}});
  }catch(error){postMessage({id:job.id,type:'error',text:error.message});}
 };
