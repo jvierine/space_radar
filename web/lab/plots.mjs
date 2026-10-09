@@ -1,5 +1,5 @@
-import {drawMath,ensureMath} from './math-labels.mjs?v=20261009rxnoise10';
-import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009rxnoise10';
+import {drawMath,ensureMath} from './math-labels.mjs?v=20261009residual11';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009residual11';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",

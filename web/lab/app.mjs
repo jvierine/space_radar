@@ -1,9 +1,9 @@
-import {estimateRcs,diameterRoots} from './rcs.mjs?v=20261009rcs1';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009rxnoise10';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009rxnoise10";
+import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009residual11';
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009residual11';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009residual11";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261009rxnoise10", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009residual11", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -107,7 +107,7 @@ function drawScanHistory() {
   for(const [id,index,label] of [['scanRange',0,'r₀ (m)'],['scanVelocity',1,'v₀ (m/s)'],['scanAcceleration',2,'a₀ (10⁶ m/s²)']])scanPlots[id].set([line(label,colors[index],points.map(p=>p.kinematics[index]))],{...cfg,yLabel:label,decimals:2,yFormat:id==='scanAcceleration'?v=>(v/1e6).toFixed(2):undefined});
   const pairs=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
   scanPlots.scanPhases.set(pairs.map(([a,b],i)=>line(`RX${b} − RX${a}`,['#0072b2','#d55e00','#009e73','#cc79a7','#111111','#e69f00'][i],points.map(p=>{const d=p.beam.phases[b]-p.beam.phases[a];return Math.atan2(Math.sin(d),Math.cos(d))*180/Math.PI;}))),{...cfg,yLabel:'Phase difference (°)',y0:-180,y1:180});
-  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>db(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>db(p.beam.peak)))],{...cfg,mode:'line',yLabel:'Matched / quiet (dB)'});
+  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>snrDb(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>snrDb(p.beam.peak)))],{...cfg,mode:'scatter',yLabel:'SNR (dB)'});
   const control=(id,fallback)=>Number(document.getElementById(id)?.value??fallback);
   const frequency=meta.parameters.f_start+meta.parameters.freq_slope*(meta.parameters.T_adc+(meta.samples-1)/(2*meta.parameters.fs));
   const settings={temperature:control('rcsTemperature',9000),frequency,txPowerDbm:control('rcsPower',12),txGainDbi:control('rcsTxGain',6),rxGainDbi:control('rcsRxGain',6),lossDb:control('rcsLoss',0)};
@@ -115,8 +115,8 @@ function drawScanHistory() {
   const valid=Object.values(settings).every(Number.isFinite)&&settings.temperature>0&&minimum>=1e-6&&maximum>=minimum&&maximum<=.1;
   for(const point of points)if(point.rcsKey!==key){
     point.rcsKey=key;
-    point.rcs=valid?[...point.beam.single,point.beam.peak].map((score,i)=>{
-      const sigma=estimateRcs(score,{...settings,range:point.kinematics[0],time:point.beam.effectiveTime},i===4?4:1);
+    point.rcs=valid&&point.beam.noiseCalibrated!==false?[...point.beam.single,point.beam.peak].map((score,i)=>{
+      const sigma=estimateRcs(score,{...settings,range:point.kinematics[0],T_coh:point.beam.T_coh??point.beam.effectiveTime},i===4?4:1);
       return {sigma,diameters:diameterRoots(sigma,frequency,minimum,maximum).map(d=>1000*d)};
     }):Array.from({length:5},()=>({sigma:NaN,diameters:[]}));
   }
@@ -124,7 +124,7 @@ function drawScanHistory() {
   scanPlots.scanDiameter.set(Array.from({length:5},(_,i)=>{
     const count=Math.max(...points.map(p=>p.rcs[i].diameters.length));
     return Array.from({length:count},(_,root)=>({name:`${i===4?'Four-RX beamformed':`RX${i}`} · solution ${root+1}`,color:colors[i],x,y:points.map(p=>p.rcs[i].diameters[root]??NaN)}));
-  }).flat(),{...cfg,mode:'line',yLabel:'PEC sphere diameter (mm)',decimals:2});
+  }).flat(),{...cfg,mode:'scatter',yLabel:'PEC sphere diameter (mm)',decimals:2});
 }
 document.addEventListener('change',event=>{if(/^rcs/.test(event.target.id)&&event.target.id!=='rcsRange')drawScanHistory();});
 for (const map of maps)
@@ -460,7 +460,7 @@ function showMatch(r) {
   if (r.cells) {
     const project = (dest, lo, hi, axis, rows) => {
       for (let cell=0;cell<r.cube.length;cell++) {
-        const score=db(r.cube[cell]), point=r.nodes.subarray(cell*3,cell*3+3);
+        const score=snrDb(r.cube[cell]), point=r.nodes.subarray(cell*3,cell*3+3);
         const row=Math.min(rows-1,Math.max(0,Math.floor((point[axis]-lo)/(hi-lo || 1)*rows)));
         const col=Math.min(nv-1,Math.max(0,Math.floor((point[2]-g.vMin)/(g.vMax-g.vMin || 1)*nv)));
         dest[row*nv+col]=Math.max(dest[row*nv+col],score);
@@ -470,14 +470,14 @@ function showMatch(r) {
   } else for (let ix = 0; ix < nx; ix++)
     for (let iy = 0; iy < ny; iy++)
       for (let iv = 0; iv < nv; iv++) {
-        const score = db(r.cube[(ix * ny + iy) * nv + iv]);
+        const score = snrDb(r.cube[(ix * ny + iy) * nv + iv]);
         if (score > a[ix * nv + iv]) a[ix * nv + iv] = score;
         if (score > b[iy * nv + iv]) b[iy * nv + iv] = score;
       }
   let gridPeakIndex=0, gridPeak=-Infinity;
   for(let i=0;i<r.cube.length;i++) if(r.cube[i]>gridPeak){gridPeak=r.cube[i];gridPeakIndex=i;}
   const markerPoint=r.radialSpec ? [g.xMin+(g.xMax-g.xMin)*Math.floor(gridPeakIndex/(ny*nv))/(nx-1 || 1),g.yMin+(g.yMax-g.yMin)*(Math.floor(gridPeakIndex/nv)%ny)/(ny-1 || 1),g.vMin+(g.vMax-g.vMin)*(gridPeakIndex%nv)/(nv-1 || 1)] : [r.best[0],r.best[1],r.best[2]];
-  const peak = db(r.radialSpec ? gridPeak : r.best[3]),
+  const peak = snrDb(r.radialSpec ? gridPeak : r.best[3]),
     low = Math.min(0, peak - 35),
     high = peak;
   const opts = {
@@ -491,7 +491,7 @@ function showMatch(r) {
     xLabel: r.radialSpec ? "Radial velocity v₀ (m/s; positive receding)" : "Along-track velocity v (m/s)",
     xMath:r.radialSpec?String.raw`v_0\;(\mathrm{m\,s^{-1}})`:String.raw`v\;(\mathrm{m\,s^{-1}})`,
     xFormat: (x) => x.toFixed(0),
-    colorLabel: "Matched / quiet (dB)",
+    colorLabel: "SNR (dB)",
   };
   vx.set(a, nv, nx, {
     ...opts,
@@ -531,7 +531,7 @@ function showMatch(r) {
   if(r.radialSpec) { $("xN").value=nx; $("yN").value=ny; $("vN").value=nv; }
   const boundsHit=r.radialSpec&&[[r.best[0],g.xMin,g.xMax],[r.best[1],g.vMin,g.vMax],[r.best[2],g.yMin,g.yMax]].some(([v,lo,hi])=>hi>lo&&Math.min(Math.abs(v-lo),Math.abs(v-hi))<1e-5*(hi-lo));
   $("matchSummary").textContent =
-    `${r.searchReceivers??1} RX incoherent · ${r.pulses} chirps (${r.start}–${r.start+r.pulses-1}) · ${db(r.best[3]).toFixed(2)} dB · ${r.radialSpec?`r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s²`:`x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${r.backend??'CPU'} · ${r.seconds.toFixed(2)} s${r.fallbackReason?' · CPU fallback':''}${overlap?' · overlaps background':''}${boundsHit?' · fit reaches search bound':''}`;
+    `${r.searchReceivers??1} RX incoherent · ${r.pulses} chirps (${r.start}–${r.start+r.pulses-1}) · ${snrDb(r.best[3]).toFixed(2)} dB · ${r.radialSpec?`r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s²`:`x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${r.backend??'CPU'} · ${r.seconds.toFixed(2)} s${r.fallbackReason?' · CPU fallback':''}${overlap?' · overlaps background':''}${boundsHit?' · fit reaches search bound':''}`;
   const xx = [],
     obs = [],
     model = [],
@@ -631,7 +631,7 @@ function showMatch(r) {
       ys = [];
     for (let i = 0; i < s.length; i += 5) {
       starts.push(s[i]);
-      ys.push(db(s[i + 1]));
+      ys.push(snrDb(s[i + 1]));
     }
     scan.set(
       [
@@ -646,7 +646,7 @@ function showMatch(r) {
         x0: starts[0],
         x1: starts.at(-1) + 1,
         xLabel: "Train start chirp (click to select)",
-        yLabel: "Energy / quiet noise (dB)",
+        yLabel: "SNR (dB)",
         decimals: 1,
       },
     );
@@ -663,7 +663,7 @@ function comparison(results) {
     results
       .map(
         (r) =>
-          `<tr><td>${r.pulses}</td><td>${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)}</td><td>${db(r.best[3]).toFixed(2)}</td><td>${r.best[0].toFixed(4)}</td><td>${r.best[1].toFixed(4)}</td><td>${r.best[2].toFixed(2)}</td></tr>`,
+          `<tr><td>${r.pulses}</td><td>${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)}</td><td>${snrDb(r.best[3]).toFixed(2)}</td><td>${r.best[0].toFixed(4)}</td><td>${r.best[1].toFixed(4)}</td><td>${r.best[2].toFixed(2)}</td></tr>`,
       )
       .join("") +
     "</tbody></table>";
@@ -830,7 +830,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261009rxnoise10',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261009residual11',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};

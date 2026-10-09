@@ -7,7 +7,7 @@
     <title>Coherent FMCW radar processing</title>
     <script>window.MathJax={startup:{typeset:false},svg:{fontCache:"none"}};</script>
     <script defer src="vendor/mathjax-tex-svg.js"></script>
-    <link rel="stylesheet" href="style.css?v=20261009rxnoise10" />
+    <link rel="stylesheet" href="style.css?v=20261009residual11" />
   </head>
   <body>
     <header>
@@ -161,7 +161,7 @@
         <p id="matchSummary" class="summary">
           Select a train and search the bank.
         </p>
-        <p class="note">Matched energy / quiet background (dB); not calibrated thermal SNR.</p>
+        <p class="note">SNR uses per-RX background residual noise scaled to the analysis bandwidth.</p>
         <div class="two">
           <div>
             <h3 id="mapRTitle">v₀ × r₀ · maximum over a₀</h3>
@@ -191,7 +191,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009rxnoise10"></script>
-    <script type="module" src="beam-ui.mjs?v=20261009rxnoise10"></script>
+    <script type="module" src="app.mjs?v=20261009residual11"></script>
+    <script type="module" src="beam-ui.mjs?v=20261009residual11"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
-import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009rxnoise10';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009rxnoise10';
-import {runRadial} from './radial-backend.mjs?v=20261009rxnoise10';
+import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009residual11';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009residual11';
+import {runRadial} from './radial-backend.mjs?v=20261009residual11';
 let wasm,
   meta,
   data,
@@ -195,7 +195,7 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     receiver: job.receiver,
     searchReceivers: 4,
     referenceStarts: trains.referenceStarts,
-    noisePower:trains.noisePower,noiseSamples:trains.noiseSamples,noiseModel:"raw full-bandwidth sample power",
+    noisePower:trains.noisePower,noiseSamples:trains.noiseSamples,noiseSamplesPerRx:trains.noiseSamplesPerRx,noiseCalibrated:trains.noiseCalibrated,noiseModel:trains.noiseMethod,
     rx,
     period: job.period,
     algorithm: job.algorithm ?? "direct",
@@ -212,7 +212,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009rxnoise10"),
+        fetch("core.wasm?v=20261009residual11"),
         {},
       );
       wasm = result.instance.exports;
@@ -266,8 +266,13 @@ onmessage = async ({ data: msg }) => {
             (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
             const q=copy();let sum=0,energy=0;
             for(let i=0;i<q.length;i+=2){const a=Math.hypot(q[i],q[i+1]);sum+=a;energy+=a*a;}
-            candidate.beam.effectiveTime=sum*sum/(p.fs*energy);
-            candidate.beam.rawNoisePower=projections.rawNoisePower;candidate.beam.noiseSamples=projections.noiseSamples;
+            candidate.beam.T_coh=n*meta.samples/p.fs;
+            candidate.beam.effectiveTime=candidate.beam.T_coh;
+            candidate.beam.analysisBandwidth=1/candidate.beam.T_coh;
+            candidate.beam.analysisNoisePower=Float64Array.from(projections.rawNoisePower,v=>v/(p.fs*candidate.beam.T_coh));
+            candidate.beam.beamAnalysisNoisePower=candidate.beam.reference/(energy*p.fs*candidate.beam.T_coh);
+            candidate.beam.analysisObservedPower=Float64Array.from(candidate.beam.channelPower,c=>c.observed/(energy*p.fs*candidate.beam.T_coh));
+            candidate.beam.rawNoisePower=projections.rawNoisePower;candidate.beam.noiseSamples=projections.noiseSamples;candidate.beam.noiseCalibrated=projections.noiseCalibrated;candidate.beam.noiseMethod=projections.noiseMethod;candidate.beam.noiseSamplesPerRx=projections.noiseSamplesPerRx;
             candidate.beam.referenceStarts=projections.referenceStarts;candidate.beam.meanCount=projections.meanCount;
             candidate.scanPoint=true;send('match',{result:candidate});
             scan.push(start,candidate.best[3],...candidate.best.slice(0,3));

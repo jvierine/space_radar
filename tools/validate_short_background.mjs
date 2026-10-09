@@ -29,7 +29,11 @@ try{
  queue.length=0;
  // The exact full user grid must also complete with those short background bounds.
  worker.postMessage({...job,computeBackend:'auto',grid:{xMin:.001,xMax:3,yMin:0,yMax:1e6,vMin:0,vMax:900},scanStop:3709});
- const full=await next('complete');assert.equal(full.type,'complete',full.message);assert.equal(full.results[0].backend,'WebGPU');assert.equal(full.results[0].referenceStarts.length,29);
+ const full=await next('complete');assert.equal(full.type,'complete',full.message);assert.equal(full.results[0].backend,'WebGPU');console.log('User settings peak: '+(10*Math.log10(Math.max(full.results[0].best[3]-1,1e-12))).toFixed(2)+' dB; background residual RX powers: '+Array.from(full.results[0].noisePower).join(', '));assert.equal(full.results[0].referenceStarts.length,29);assert(full.results[0].best[3]>2,'Shared-view peak has positive excess-signal SNR');assert(Math.abs(full.results[0].beam.analysisBandwidth-12.5e6/1800)<.01);for(let a=0;a<4;a++)assert(Math.abs(full.results[0].beam.analysisNoisePower[a]/(full.results[0].beam.rawNoisePower[a]/1800)-1)<1e-6);
+ queue.length=0;
+ worker.postMessage({...job,computeBackend:'auto',grid:{xMin:.001,xMax:3,yMin:0,yMax:1e6,vMin:0,vMax:900},scanStart:3755,scanStop:3763});
+ const target=await next('complete');assert.equal(target.type,'complete',target.message);
+ console.log('Selected chirp 3755 RX diagnostics: '+JSON.stringify(target.results[0].beam.channelPower.map((p,i)=>({rx:i,noise:target.results[0].beam.rawNoisePower[i],analysisNoise:target.results[0].beam.analysisNoisePower[i],snrDb:10*Math.log10(Math.max(target.results[0].beam.single[i]-1,1e-12)),matchedPower:p.observed}))));
  queue.length=0;worker.postMessage({type:'background',start:3648,stop:3649});await next('background');
  worker.postMessage({...job,noiseStop:3649,scanStop:3709});const single=await next('complete');assert.equal(single.type,'complete',single.message);assert.equal(single.results[0].noiseSamples,225);
  assert(single.results[0].beam.single.every(Number.isFinite));

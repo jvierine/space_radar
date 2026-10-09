@@ -21,12 +21,12 @@ for(let i=0;i<10;i++)for(let j=0;j<10;j++)for(let k=0;k<10;k++) {
     const im=z.reduce((s,_,a)=>a%2?s:s+(z[a]*Math.sin(phases[a/2])+z[a+1]*Math.cos(phases[a/2]))/2,0);
     return re*re+im*im;
   };
-  const value=10*Math.log10(energy(event)/(independent.reduce((s,z)=>s+energy(z),0)/independent.length));
+  const value=10*Math.log10(Math.max(energy(event)/(independent.reduce((s,z)=>s+energy(z),0)/independent.length)-1,1e-12));
   for(const [p,index] of [[0,j*10+i],[1,k*10+i],[2,k*10+j]])expected[p][index]=Math.max(expected[p][index],value);
 }
 assert.deepEqual(r.projections,expected);
 for(const [p,[x,y]] of [[0,[0,1]],[1,[0,2]],[2,[1,2]]])
-  assert.ok(Math.abs(r.projections[p][r.indices[y]*10+r.indices[x]]-10*Math.log10(r.gridPeak))<1e-5);
+  assert.ok(Math.abs(r.projections[p][r.indices[y]*10+r.indices[x]]-10*Math.log10(Math.max(r.gridPeak-1,1e-12)))<1e-5);
 console.log('PASS: all three MAX phase projections, axis ordering, and projected grid-peak cells');
 const same=Float64Array.from([2,0,2,0,2,0,2,0]);
 const correlated=Array.from({length:8},()=>Float64Array.from([1,0,1,0,1,0,1,0]));

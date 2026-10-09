@@ -46,8 +46,11 @@ export function diameterRoots(sigma,frequency,minimum,maximum) {
   return roots.filter((d,i)=>i===0 || Math.abs(d-roots[i-1])>1e-10);
 }
 
-export function estimateRcs(ratio,{temperature,range,frequency,time,txPowerDbm,txGainDbi,rxGainDbi,lossDb},receivers=1) {
+export function estimateRcs(ratio,{temperature,range,frequency,time,T_coh,txPowerDbm,txGainDbi,rxGainDbi,lossDb},receivers=1) {
   const signalSnr=Math.max(ratio-1,0);
   const power=10**((txPowerDbm-30)/10),gain=10**((txGainDbi+rxGainDbi-lossDb)/10);
-  return signalSnr*KB*temperature/time*(4*Math.PI)**3*range**4/(power*gain*(C/frequency)**2*receivers);
+  return signalSnr*KB*temperature/(T_coh??time)*(4*Math.PI)**3*range**4/(power*gain*(C/frequency)**2*receivers);
 }
+
+// Excess signal over expected matched-filter noise; floor only for finite plot colours.
+export const snrDb=ratio=>10*Math.log10(Math.max(ratio-1,1e-12));

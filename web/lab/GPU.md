@@ -2,13 +2,19 @@
 
 The trajectory bank sums **powers from all four receivers**, after subtracting
 each receiver's own complex mean from the event at every fast-time sample.
-Noise uses raw full-sample-bandwidth complex sample power, E[|I+iQ|²],
-without removing the quiet mean. One intact background chirp is sufficient.
-For a template q, matched noise energy is sample power times Σ|q|²;
-this propagation assumes temporally white noise. Beam noise uses the raw
-four-receiver sample covariance times template energy, retaining receiver
-correlations. Background samples are not counted as independent matched trains.
-The selected receiver controls all three voltage/spectrum plots and fit traces;
+Noise uses the full-bandwidth residual after removing each RX's stationary
+background waveform at each fast-time sample. All intact selected samples are
+used separately per RX. Dividing the sum of residual squared voltages by
+samples × (background chirps − 1) corrects mean-fit bias. The covariance retains
+receiver correlations. One chirp permits a raw-background upper bound, but cannot
+separate arbitrary stationary echoes from noise; RCS is omitted in that case.
+Matched noise projection energy = noise sample power × Σ|q|², assuming temporal
+white noise. With normalization of projected powers by N Σ|q|², analysis bandwidth is
+1/T_coh, where T_coh = N/fs is the acquired coherent integration length and displayed SNR is 10 log10(max(observed/noise − 1, 1e−12)).
+Noise is therefore scaled to analysis bandwidth before computing SNR or RCS.
+The background-mean uncertainty in event subtraction is not included in that
+white-noise propagation; beam RCS also retains the ideal-four-receiver assumption.
+The selected receiver controls the voltage/spectrum plots and fit traces;
 the trajectory bank still sums all four receiver matched powers.
 
 CPU and WebGPU FFT arithmetic/storage are complex64 (two float32 components).
@@ -72,6 +78,8 @@ stationary clutter. Their template-dependent denominator can favor a different
 ratio maximum from the injected trajectory; the raw-clutter NumPy regression
 verifies the exact statistic separately from white-noise recovery tests.
 
-HDF5 download uses vendored h5wasm 0.10.3 (NIST; license in vendor/h5wasm). It stores every completed train estimate, receiver/beam scores, phase search outputs, RCS and every diameter inversion root, plus the current full matched-filter bank and complex voltage fit. Timing is reconstructed. `tools/validate_analysis_export.mjs` and independent h5py readback validate the exported file. Waveforms, fitted trajectories, SNR and diameter curves use lines; range, velocity, acceleration, RCS and phase histories use unconnected scatter points. `tools/validate_selected_spectrum.mjs` checks the selected receiver spectrogram independently.
+HDF5 download uses vendored h5wasm 0.10.3 (NIST; license in vendor/h5wasm). It stores every completed train estimate, receiver/beam scores, phase search outputs, RCS and every diameter inversion root, plus the current full matched-filter bank and complex voltage fit. Timing is reconstructed. `tools/validate_analysis_export.mjs` and independent h5py readback validate the exported file. Waveforms and fitted trajectories use lines. All analysis histories, including SNR and every diameter root, use unconnected scatter points. `tools/validate_selected_spectrum.mjs` checks the selected receiver spectrogram independently.
 
 Short-background regression: `tools/validate_short_background.mjs` checks the exact user bounds [3648,3677) and all 194 usable analysis starts in [3701,3916), then a single background chirp. `tools/validate_fullband_noise.mjs` independently verifies full-bandwidth power, matched-template energy normalization, and beam covariance. Earlier timing measurements above used the previous matched-background-train normalization.
+
+`tools/validate_background_residual_noise.mjs` verifies wall-echo rejection, unbiased residual variance, all selected samples and independent RX powers. The shared view [3648,3677) / [3701,3916) has 194 usable starts; its first full-grid peak now has positive analysis-bandwidth SNR.

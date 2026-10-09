@@ -11,7 +11,7 @@ export async function writeAnalysis(h5,payload) {
     attr(file,'schema','fmcw-analysis-1');attr(file,'created_utc',new Date().toISOString());
     attr(file,'source_url',payload.url);attr(file,'recording',payload.meta);attr(file,'settings',payload.settings);
     attr(file,'timing','Reconstructed seconds since file start; not measured recording timing.');
-    attr(file,'noise_reference','Raw full-sample-bandwidth E[|I+iQ|^2] and receiver covariance; matched noise power = sample noise power times template energy. Events independently mean-subtracted per RX.');
+    attr(file,'noise_reference','Full-sample-bandwidth per-RX background residual variance and receiver covariance, with M/(M-1) mean-fit correction; single-chirp fallback is an unseparated upper bound; matched noise power = sample noise power times template energy. Events independently mean-subtracted per RX.');
     attr(file,'coverage','All completed train estimates and beamforming results. Full matched-filter bank and voltage fit for current displayed train.');
     const history=file.create_group('history'),points=payload.points,N=points.length;
     if(N){
@@ -20,6 +20,12 @@ export async function writeAnalysis(h5,payload) {
       dataset(history,'r0_v0_a0',points.flatMap(p=>p.kinematics),[N,3]);
       attr(history,'r0_v0_a0_units',['m','m/s','m/s^2']);
       dataset(history,'single_rx_matched_to_quiet',points.flatMap(p=>Array.from(p.beam.single)),[N,4]);
+      dataset(history,'T_coh_s',points.map(p=>p.beam.T_coh??p.beam.effectiveTime));
+      dataset(history,'analysis_observed_power_adc2',points.flatMap(p=>Array.from(p.beam.analysisObservedPower??[NaN,NaN,NaN,NaN])),[N,4]);
+      dataset(history,'analysis_bandwidth_hz',points.map(p=>p.beam.analysisBandwidth??NaN));
+      dataset(history,'analysis_noise_power_adc2',points.flatMap(p=>Array.from(p.beam.analysisNoisePower??[NaN,NaN,NaN,NaN])),[N,4]);
+      dataset(history,'single_rx_snr_linear',points.flatMap(p=>Array.from(p.beam.single,v=>Math.max(v-1,0))),[N,4]);
+      dataset(history,'beam_snr_linear',points.map(p=>Math.max(p.beam.peak-1,0)));
       dataset(history,'raw_noise_power_adc2',points.flatMap(p=>Array.from(p.beam.rawNoisePower??[NaN,NaN,NaN,NaN])),[N,4]);
       dataset(history,'matched_noise_power',points.flatMap(p=>p.beam.channelPower?.map(c=>c.quiet)??[NaN,NaN,NaN,NaN]),[N,4]);
       dataset(history,'beam_matched_to_quiet',points.map(p=>p.beam.peak));
@@ -44,7 +50,7 @@ export async function writeAnalysis(h5,payload) {
     }
     if(payload.result){
       const r=payload.result,g=file.create_group('current_match');
-      for(const key of ['start','pulses','period','midpoint','model','grid','radialSpec','backend','seconds','searchReceivers','noiseModel','noiseSamples','noisePower'])if(r[key]!==undefined)attr(g,key,r[key]);
+      for(const key of ['start','pulses','period','midpoint','model','grid','radialSpec','backend','seconds','searchReceivers','noiseModel','noiseSamples','noisePower','noiseSamplesPerRx','noiseCalibrated'])if(r[key]!==undefined)attr(g,key,r[key]);
       for(const key of ['best','cube','nodes','observed','fit','scanResults'])if(r[key])dataset(g,key,r[key],key==='observed'||key==='fit'?[r[key].length/2,2]:undefined,key==='cube'?'<f':'<d');
       if(r.fit&&r.observed)dataset(g,'residual',Array.from(r.observed,(v,i)=>v-r.fit[i]),[r.fit.length/2,2]);
       attr(g,'cube_order','Flattened (range, acceleration, velocity) for radial search; use radialSpec dimensions and grid bounds.');
