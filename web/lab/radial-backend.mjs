@@ -1,4 +1,4 @@
-import {GpuRadial,Cancelled} from './gpu-radial.mjs?v=20261009residual11';
+import {GpuRadial,Cancelled} from './gpu-radial.mjs?v=20261009snrfloor12';
 let cachedGpu=null,disabledReason=null;
 const copy=w=>new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len()).slice();
 export function importGpuScores(w,scores){

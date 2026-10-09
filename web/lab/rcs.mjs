@@ -52,5 +52,5 @@ export function estimateRcs(ratio,{temperature,range,frequency,time,T_coh,txPowe
   return signalSnr*KB*temperature/(T_coh??time)*(4*Math.PI)**3*range**4/(power*gain*(C/frequency)**2*receivers);
 }
 
-// Excess signal over expected matched-filter noise; floor only for finite plot colours.
-export const snrDb=ratio=>10*Math.log10(Math.max(ratio-1,1e-12));
+// Display excess-signal SNR with a 0 dB floor; raw ratios remain unchanged.
+export const snrDb=ratio=>10*Math.log10(Math.max(ratio-1,1));

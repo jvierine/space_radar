@@ -1,5 +1,5 @@
-import {snrDb} from './rcs.mjs?v=20261009residual11';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009residual11';
+import {snrDb} from './rcs.mjs?v=20261009snrfloor12';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009snrfloor12';
 export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.

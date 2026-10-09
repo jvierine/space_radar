@@ -1,6 +1,6 @@
-import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009residual11';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009residual11';
-import {runRadial} from './radial-backend.mjs?v=20261009residual11';
+import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009snrfloor12';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009snrfloor12';
+import {runRadial} from './radial-backend.mjs?v=20261009snrfloor12';
 let wasm,
   meta,
   data,
@@ -212,7 +212,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009residual11"),
+        fetch("core.wasm?v=20261009snrfloor12"),
         {},
       );
       wasm = result.instance.exports;
