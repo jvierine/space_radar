@@ -1,5 +1,5 @@
-import {drawMath,ensureMath} from './math-labels.mjs?v=20261009default13';
-import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009default13';
+import {drawMath,ensureMath} from './math-labels.mjs?v=20261009zeroaxes14';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009zeroaxes14';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",
@@ -75,7 +75,7 @@ export class Heatmap {
     }));
     if (!gl) throw Error("WebGL2 is required for the data maps.");
     const vs = `#version 300 es\nin vec2 p;out vec2 uv;void main(){uv=(p+1.)/2.;gl_Position=vec4(p,0.,1.);}`;
-    const fs = `#version 300 es\nprecision highp float;uniform sampler2D image;uniform float lo,hi;uniform int kind;uniform vec4 sourceRect;in vec2 uv;out vec4 color;vec3 magma(float x){vec3 a=vec3(9,12,27)/255.;vec3 b=vec3(68,28,94)/255.;vec3 c=vec3(164,46,87)/255.;vec3 d=vec3(237,115,78)/255.;vec3 e=vec3(249,237,164)/255.;return x<.25?mix(a,b,x*4.):x<.5?mix(b,c,(x-.25)*4.):x<.75?mix(c,d,(x-.5)*4.):mix(d,e,(x-.75)*4.);}void main(){float v=texture(image,mix(sourceRect.xy,sourceRect.zw,uv)).r;if(isnan(v)||isinf(v)){color=vec4(.24,.29,.32,1.);return;}float x=clamp((v-lo)/(hi-lo),0.,1.);vec3 c=kind==0?(x<.5?mix(vec3(37,91,139)/255.,vec3(242,242,231)/255.,x*2.):mix(vec3(242,242,231)/255.,vec3(189,74,40)/255.,(x-.5)*2.)):magma(x);color=vec4(c,1.);}`;
+    const fs = `#version 300 es\nprecision highp float;uniform sampler2D image;uniform float lo,hi;uniform int kind;uniform vec4 sourceRect;in vec2 uv;out vec4 color;vec3 magma(float x){vec3 a=vec3(9,12,27)/255.;vec3 b=vec3(68,28,94)/255.;vec3 c=vec3(164,46,87)/255.;vec3 d=vec3(237,115,78)/255.;vec3 e=vec3(249,237,164)/255.;return x<.25?mix(a,b,x*4.):x<.5?mix(b,c,(x-.25)*4.):x<.75?mix(c,d,(x-.5)*4.):mix(d,e,(x-.75)*4.);}void main(){float v=texture(image,mix(sourceRect.xy,sourceRect.zw,uv)).r;if(isnan(v)||isinf(v)){color=vec4(.24,.29,.32,1.);return;}float x=clamp((v-lo)/max(hi-lo,1e-12),0.,1.);vec3 c=kind==0?(x<.5?mix(vec3(37,91,139)/255.,vec3(242,242,231)/255.,x*2.):mix(vec3(242,242,231)/255.,vec3(189,74,40)/255.,(x-.5)*2.)):magma(x);color=vec4(c,1.);}`;
     const compile = (type, source) => {
       const shader = gl.createShader(type);
       gl.shaderSource(shader, source);

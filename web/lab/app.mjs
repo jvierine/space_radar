@@ -1,9 +1,9 @@
-import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009default13';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009default13';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009default13";
+import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes14';
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009zeroaxes14';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009zeroaxes14";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261009default13", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009zeroaxes14", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -107,7 +107,7 @@ function drawScanHistory() {
   for(const [id,index,label] of [['scanRange',0,'r₀ (m)'],['scanVelocity',1,'v₀ (m/s)'],['scanAcceleration',2,'a₀ (10⁶ m/s²)']])scanPlots[id].set([line(label,colors[index],points.map(p=>p.kinematics[index]))],{...cfg,yLabel:label,decimals:2,yFormat:id==='scanAcceleration'?v=>(v/1e6).toFixed(2):undefined});
   const pairs=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
   scanPlots.scanPhases.set(pairs.map(([a,b],i)=>line(`RX${b} − RX${a}`,['#0072b2','#d55e00','#009e73','#cc79a7','#111111','#e69f00'][i],points.map(p=>{const d=p.beam.phases[b]-p.beam.phases[a];return Math.atan2(Math.sin(d),Math.cos(d))*180/Math.PI;}))),{...cfg,yLabel:'Phase difference (°)',y0:-180,y1:180});
-  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>snrDb(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>snrDb(p.beam.peak)))],{...cfg,mode:'scatter',yLabel:'SNR (dB)'});
+  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>snrDb(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>snrDb(p.beam.peak)))],{...cfg,mode:'scatter',y0:0,yLabel:'SNR (dB)'});
   const control=(id,fallback)=>Number(document.getElementById(id)?.value??fallback);
   const frequency=meta.parameters.f_start+meta.parameters.freq_slope*(meta.parameters.T_adc+(meta.samples-1)/(2*meta.parameters.fs));
   const settings={temperature:control('rcsTemperature',9000),frequency,txPowerDbm:control('rcsPower',12),txGainDbi:control('rcsTxGain',6),rxGainDbi:control('rcsRxGain',6),lossDb:control('rcsLoss',0)};
@@ -478,7 +478,7 @@ function showMatch(r) {
   for(let i=0;i<r.cube.length;i++) if(r.cube[i]>gridPeak){gridPeak=r.cube[i];gridPeakIndex=i;}
   const markerPoint=r.radialSpec ? [g.xMin+(g.xMax-g.xMin)*Math.floor(gridPeakIndex/(ny*nv))/(nx-1 || 1),g.yMin+(g.yMax-g.yMin)*(Math.floor(gridPeakIndex/nv)%ny)/(ny-1 || 1),g.vMin+(g.vMax-g.vMin)*(gridPeakIndex%nv)/(nv-1 || 1)] : [r.best[0],r.best[1],r.best[2]];
   const peak = snrDb(r.radialSpec ? gridPeak : r.best[3]),
-    low = Math.min(0, peak - 35),
+    low = 0,
     high = peak;
   const opts = {
     x0: g.vMin,
@@ -646,7 +646,7 @@ function showMatch(r) {
         x0: starts[0],
         x1: starts.at(-1) + 1,
         xLabel: "Train start chirp (click to select)",
-        yLabel: "SNR (dB)",
+        y0: 0, yLabel: "SNR (dB)",
         decimals: 1,
       },
     );
@@ -830,7 +830,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261009default13',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261009zeroaxes14',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};
