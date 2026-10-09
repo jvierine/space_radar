@@ -372,7 +372,7 @@ export class Heatmap {
     ctx.textAlign = "left";
     for (let i = 0; i <= 4; i++)
       ctx.fillText(
-        (c.hi - ((c.hi - c.lo) * i) / 4).toFixed(c.kind ? 1 : 0),
+        (c.hi - ((c.hi - c.lo) * i) / 4).toFixed(c.colorDecimals ?? (c.kind ? 1 : 0)),
         bx + bw + 5,
         top + (height * i) / 4,
       );

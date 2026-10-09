@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009g";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009h";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009g", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009h", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -372,12 +372,14 @@ function showMatch(r) {
       }
   const peak = db(r.best[3]),
     low = Math.min(0, peak - 35),
-    high = Math.max(10, peak);
+    high = peak;
   const opts = {
     x0: g.vMin,
     x1: g.vMax === g.vMin ? g.vMax + 1 : g.vMax,
     lo: low,
     hi: high,
+    topLabel: `Peak matched-filter value = ${peak.toFixed(2)} dB`,
+    colorDecimals: 2,
     kind: 1,
     xLabel: "Along-track velocity v (m/s)",
     xFormat: (x) => x.toFixed(0),
