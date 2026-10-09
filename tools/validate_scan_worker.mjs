@@ -12,7 +12,7 @@ worker.on('message',m=>{
   if(m.type==='error')throw Error(m.message);
   if(m.type==='background'&&expectedType==='background'){
    expectedType='complete';worker.postMessage({type:'period',period:25.37e-6});
-   worker.postMessage({type:'search',algorithm:'fft',computeBackend:'cpu',start:750,pulses:8,period:25.37e-6,receiver:false,noiseStart:125,noiseStop:625,grid:{xMin:.3,xMax:.3,yMin:5e5,yMax:5e5,vMin:-320,vMax:-320},loss:5,scan:true,scanStart:750,scanStop:762,scanStride:10,beamSteps:3});
+   worker.postMessage({type:'search',algorithm:'fft',computeBackend:'cpu',start:750,pulses:8,period:25.37e-6,receiver:false,noiseStart:0,noiseStop:125,grid:{xMin:.3,xMax:.3,yMin:5e5,yMax:5e5,vMin:-320,vMax:-320},loss:5,scan:true,scanStart:750,scanStop:762,scanStride:10,beamSteps:3});
   }
   if(m.type==='match'&&m.result.scanPoint){
    const r=m.result;points.push(r.start);assert.equal(r.searchReceivers,4);assert.equal(r.beam.single.length,4);assert.equal(r.beam.phases.length,4);assert(Number.isFinite(r.beam.peak));

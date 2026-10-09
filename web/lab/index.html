@@ -7,7 +7,7 @@
     <title>Coherent FMCW radar processing</title>
     <script>window.MathJax={startup:{typeset:false},svg:{fontCache:"none"}};</script>
     <script defer src="vendor/mathjax-tex-svg.js"></script>
-    <link rel="stylesheet" href="style.css?v=20261009drag3" />
+    <link rel="stylesheet" href="style.css?v=20261009export8" />
   </head>
   <body>
     <header>
@@ -23,140 +23,25 @@
       Loading the DSP engine and verified I/Q data…
     </div>
     <main>
-      <section class="card settings" id="settings">
-        <h2>Recording &amp; timing</h2>
-        <div class="fields">
-          <label
-            >Display receiver<select id="rx">
-              <option value="0">RX0</option>
-              <option value="1">RX1</option>
-              <option value="2">RX2</option>
-              <option value="3">RX3</option>
-            </select></label
-          ><label
-            >ADC component<select id="component">
-              <option value="0">Real part</option>
-              <option value="2">Imaginary part</option>
-            </select></label
-          ><label
-            >Ramp tail (µs)<input
-              id="tail"
-              type="number"
-              value="0.37"
-              min="0"
-              step="0.01" /></label
-          ><label
-            >Frame interval (ms)<input
-              id="framePeriod"
-              type="number"
-              min="0"
-              step="0.001" /></label
-          ><button id="timing">Apply timing</button>
-        </div>
-        <p class="note" id="timingNote"></p>
-        <p class="note" id="padding"></p>
-      </section>
-      <section class="card settings">
-        <h2>Quiet background</h2>
-        <p class="note">Independent complex background subtraction per RX.</p>
-        <div class="fields">
-          <label
-            >Mean: first chirp<input
-              id="bgStart"
-              type="number"
-              value="0"
-              min="0" /></label
-          ><label
-            >Mean: stop (exclusive)<input
-              id="bgStop"
-              type="number"
-              value="125"
-              min="1" /></label
-          ><label
-            >Noise: first chirp<input
-              id="noiseStart"
-              type="number"
-              value="125"
-              min="0" /></label
-          ><label
-            >Noise: stop (exclusive)<input
-              id="noiseStop"
-              type="number"
-              value="625"
-              min="1" /></label
-          ><button id="background">Apply quiet mean</button>
-        </div>
-        <p class="note" id="bgNote"></p>
-      </section>
       <section class="card settings">
         <div class="section-head">
           <h2>Slow time × fast time</h2>
           <div class="actions">
-            <button id="full">Reset full view</button
-            ><button id="frame">Selected frame</button
-            ><button id="around">Around selection</button
-            ><button id="zoomBackground">Zoom to background</button>
+            <button id="scan" class="primary">▶ Play</button><button id="cancel" disabled>Stop</button><button id="download" disabled>Download HDF5</button><button id="full">Reset full view</button>
           </div>
         </div>
         <div class="fields">
-          <label for="zoom">Zoom about coherent integration</label>
-          <input
-            id="zoom"
-            type="range"
-            min="0"
-            max="100"
-            step="1"
-            value="0"
-            aria-label="Zoom centered on coherent integration"
-          />
-          <output id="zoomLabel" for="zoom">Full recording</output>
+          <label>Voltage channel<select id="rx"><option value="0">RX0</option><option value="1">RX1</option><option value="2">RX2</option><option value="3">RX3</option></select></label><label>Voltage component<select id="component"><option value="0">Real</option><option value="2">Imaginary</option></select></label><label>Raw ±counts<input id="rawScale" type="number" value="2500" min="1" /></label>
+          <label>Residual ±counts<input id="subScale" type="number" value="100" min="1" /></label>
+          <label>Spectrum span (dB)<input id="span" type="number" value="70" min="10" max="140" /></label>
+          <label>Spectrum<select id="fftSub"><option value="1">Quiet mean removed</option><option value="0">Original I/Q</option></select></label>
         </div>
-        <div class="fields">
-          <label
-            >View: first chirp<input
-              id="viewStart"
-              type="number"
-              value="0"
-              min="0" /></label
-          ><label
-            >View: last chirp (inclusive)<input
-              id="viewStop"
-              type="number"
-              value="6249"
-              min="1" /></label
-          ><button id="view">Set view</button
-          ><label
-            >Raw ±counts<input
-              id="rawScale"
-              type="number"
-              value="2500"
-              min="1" /></label
-          ><label
-            >Residual ±counts<input
-              id="subScale"
-              type="number"
-              value="100"
-              min="1" /></label
-          ><label
-            >Spectrum span (dB)<input
-              id="span"
-              type="number"
-              value="70"
-              min="10"
-              max="140" /></label
-          ><label
-            >Spectrum<select id="fftSub">
-              <option value="1">Quiet mean removed</option>
-              <option value="0">Original I/Q</option>
-            </select></label
-          >
-        </div>
-        <p class="note">Blue: background (move/resize). Yellow: integration train (move). Drag empty space to zoom; click to select.</p>
+        <p class="note">Select background (blue), select analysis window (purple), and press Play. See results appear. Drag windows to move; edges to resize. Drag empty space to zoom.</p>
         <h3>Raw stored voltage · undecoded</h3>
         <div id="rawPlot" class="heatmap"></div>
         <h3>Quiet complex mean removed · undecoded</h3>
         <div id="subPlot" class="heatmap"></div>
-        <h3>One complex Fourier spectrum per chirp</h3>
+        <h3>Four-RX incoherent average spectrum per chirp</h3>
         <div id="fftPlot" class="heatmap"></div>
         <p class="note" id="fftNote"></p>
       </section>
@@ -263,7 +148,7 @@
             </tr>
             <tr>
               <th id="axisV">v₀ (m/s)</th>
-              <td><input id="vMin" type="number" value="-900" step="10" /></td>
+              <td><input id="vMin" type="number" value="0" step="10" /></td>
               <td><input id="vMax" type="number" value="900" step="10" /></td>
               <td>
                 <input id="vN" type="number" value="41" min="1" max="301" />
@@ -272,26 +157,6 @@
           </tbody>
         </table>
         <p id="gridNote" class="note">Grid spacing is automatic; full bounds are retained.</p>
-        <div class="actions">
-          <button id="search" class="primary">Search selected train</button
-          ><button id="cancel" disabled>Cancel</button>
-        </div>
-        <div class="fields scan">
-          <label
-            >Time scan: first chirp<input
-              id="scanStart"
-              type="number"
-              value="625"
-              min="0" /></label
-          ><label
-            >Stop (exclusive)<input
-              id="scanStop"
-              type="number"
-              value="750"
-              min="1" /></label
-          ><button id="scan">Analyze every train</button>
-        </div>
-        <p class="note">Scans exclude quiet intervals, padding, and frame crossings.</p>
         <progress id="progress" value="0" max="1"></progress>
         <p id="matchSummary" class="summary">
           Select a train and search the bank.
@@ -313,9 +178,11 @@
         <div class="lineplot" id="rangePlot"></div>
         <div id="compareResults"></div>
         <div class="lineplot" id="scanPlot"></div>
-        <div id="scanTimeline" hidden><h3>Analyze interval</h3>
+      </section>
+      <section class="card" id="scanTimeline" hidden><h2>Time-series history</h2>
         <div class="lineplot" id="scanRange"></div><div class="lineplot" id="scanVelocity"></div><div class="lineplot" id="scanAcceleration"></div>
-        <div class="lineplot" id="scanPhases"></div><div class="lineplot" id="scanSnr"></div></div>
+        <div class="lineplot" id="scanPhases"></div><div class="lineplot" id="scanSnr"></div>
+        <div class="lineplot" id="scanRcs"></div><div class="lineplot" id="scanDiameter"></div>
       </section>
     </main>
     <footer>
@@ -324,7 +191,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009nocompare4"></script>
-    <script type="module" src="beam-ui.mjs?v=20261009drag3"></script>
+    <script type="module" src="app.mjs?v=20261009export8"></script>
+    <script type="module" src="beam-ui.mjs?v=20261009export8"></script>
   </body>
 </html>

@@ -1,4 +1,4 @@
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009drag3';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009export8';
 export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.
@@ -117,15 +117,15 @@ export function phaseSearch(event, noise, steps = 10) {
 
 export function projectReceivers(receivers, q, {samples, rows, perFrame, start, pulses, bgStart, bgStop, noiseStart, noiseStop, conjugated}) {
   const {means,meanCounts,referenceStarts}=prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop});
-  const project=k=>{
+  const project=(k,subtractMean=true)=>{
     const out=new Float64Array(8);
     for(let a=0;a<4;a++)for(let n=0;n<pulses;n++)for(let j=0;j<samples;j++){
       const ti=2*(n*samples+j),zi=2*((k+n)*samples+j);
       const qr=q[ti],qi=(conjugated?-1:1)*q[ti+1];
-      const zr=receivers[a][zi]-means[a][2*j],zii=receivers[a][zi+1]-means[a][2*j+1];
+      const zr=receivers[a][zi]-(subtractMean?means[a][2*j]:0),zii=receivers[a][zi+1]-(subtractMean?means[a][2*j+1]:0);
       out[2*a]+=qr*zr+qi*zii;out[2*a+1]+=qr*zii-qi*zr;
     }
     return out;
   };
-  return {event:project(start),noise:referenceStarts.map(project),referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
+  return {event:project(start),noise:referenceStarts.map(k=>project(k,false)),referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
 }

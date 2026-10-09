@@ -1,5 +1,5 @@
-import {drawMath,ensureMath} from './math-labels.mjs?v=20261009drag3';
-import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009drag3';
+import {drawMath,ensureMath} from './math-labels.mjs?v=20261009export8';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009export8';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",
@@ -643,21 +643,24 @@ export class LinePlot {
       ctx.rect(l, t, w, h);
       ctx.clip();
       ctx.beginPath();
-      let pen = false;
-      for (let i = 0; i < s.y.length; i++) {
-        if (!Number.isFinite(s.y[i])) {
-          pen = false;
-          continue;
+      const mode=s.mode??c.mode??'line';
+      if(mode==='scatter') {
+        const radius=s.radius??c.pointRadius??1.8;
+        for(let i=0;i<s.y.length;i++) {
+          if(!Number.isFinite(s.x[i])||!Number.isFinite(s.y[i]))continue;
+          const x=xp(s.x[i]),y=yp(s.y[i]);
+          ctx.moveTo(x+radius,y);ctx.arc(x,y,radius,0,2*Math.PI);
         }
-        const x = s.x[i],
-          y = s.y[i];
-        if (!pen) {
-          ctx.moveTo(xp(x), yp(y));
-          pen = true;
-        } else ctx.lineTo(xp(x), yp(y));
+        ctx.fill();
+      } else {
+        let pen=false;
+        for(let i=0;i<s.y.length;i++) {
+          if(!Number.isFinite(s.x[i])||!Number.isFinite(s.y[i])){pen=false;continue;}
+          if(!pen){ctx.moveTo(xp(s.x[i]),yp(s.y[i]));pen=true;}
+          else ctx.lineTo(xp(s.x[i]),yp(s.y[i]));
+        }
+        ctx.stroke();
       }
-      ctx.stroke();
-      if(s.y.length===1&&Number.isFinite(s.y[0])){ctx.beginPath();ctx.arc(xp(s.x[0]),yp(s.y[0]),3,0,2*Math.PI);ctx.fill();}
       ctx.restore();
     }
   }

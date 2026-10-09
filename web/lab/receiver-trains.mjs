@@ -1,4 +1,4 @@
-// Independent receiver means; common intact event and independent quiet trains.
+// Mean-subtracted events; RAW common quiet trains for noise normalization.
 export function commonValid(receivers, samples, rows) {
   return Array.from({length:rows},(_,k)=>receivers.every(data=>{
     let run=0;
@@ -29,18 +29,18 @@ export function prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pul
   });
   const candidates=[];
   for(let k=noiseStart;k+pulses<=noiseStop;) {
-    if(trainValid(k)&&(k+pulses<=start||k>=start+pulses)&&(k+pulses<=bgStart||k>=bgStop)){candidates.push(k);k+=pulses;}else k++;
+    if(trainValid(k)&&(k+pulses<=start||k>=start+pulses)){candidates.push(k);k+=pulses;}else k++;
   }
-  if(candidates.length<8)throw Error('Need eight common intact quiet trains outside event and background-mean intervals.');
+  if(candidates.length<8)throw Error('Background must contain at least eight intact, nonoverlapping quiet trains outside the event. Enlarge the blue window.');
   const count=Math.min(24,candidates.length);
   const referenceStarts=Array.from({length:count},(_,i)=>candidates[Math.floor(i*candidates.length/count)]);
   const width=2*samples*pulses,data=new Float32Array(width*4*(count+1));
-  const put=(receiver,k,index)=>{
-    for(let n=0;n<pulses;n++)for(let j=0;j<2*samples;j++)data[index*width+n*2*samples+j]=receivers[receiver][2*(k+n)*samples+j]-means[receiver][j];
+  const put=(receiver,k,index,subtractMean)=>{
+    for(let n=0;n<pulses;n++)for(let j=0;j<2*samples;j++)data[index*width+n*2*samples+j]=receivers[receiver][2*(k+n)*samples+j]-(subtractMean?means[receiver][j]:0);
   };
   for(let a=0;a<4;a++) {
-    put(a,start,a);
-    referenceStarts.forEach((k,i)=>put(a,k,4+a*count+i));
+    put(a,start,a,true);
+    referenceStarts.forEach((k,i)=>put(a,k,4+a*count+i,false));
   }
   return {data,means,meanCounts,referenceStarts,quietCount:count};
 }

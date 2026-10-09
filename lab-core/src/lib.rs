@@ -585,7 +585,9 @@ pub extern "C" fn prepare(
         let mut candidates = vec![];
         let mut k = noise_start;
         while k + pulses <= noise_stop {
-            if a.valid_train(k, pulses) && (k + pulses <= start || k >= start + pulses) {
+            if a.valid_train(k, pulses)
+                && (k + pulses <= start || k >= start + pulses)
+            {
                 candidates.push(k);
                 k += pulses;
             } else {
@@ -597,7 +599,10 @@ pub extern "C" fn prepare(
         }
         let count = candidates.len().min(24);
         a.noise = (0..count)
-            .map(|i| a.train(candidates[i * candidates.len() / count], pulses))
+            .map(|i| {
+                let start = candidates[i * candidates.len() / count];
+                a.raw[start * a.n..(start + pulses) * a.n].to_vec()
+            })
             .collect();
         a.noise.len() as isize
     })
@@ -1057,7 +1062,8 @@ pub extern "C" fn radial_batch(first: usize, count: usize) -> usize {
     })
 }
 // Prepared channel-major event trains, then channel-major quiet trains.
-// Per-channel complex means have already been removed; no voltage summation.
+// Event means are removed per channel; quiet-reference trains remain raw.
+// Receiver powers are summed, never voltages.
 #[no_mangle]
 pub unsafe extern "C" fn search_receivers(
     ptr: *const f32,

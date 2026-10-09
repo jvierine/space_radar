@@ -1,8 +1,9 @@
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009drag3';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009drag3";
+import {estimateRcs,diameterRoots} from './rcs.mjs?v=20261009rcs1';
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009export8';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009export8";
 const $ = (id) => document.getElementById(id),
-  num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009drag3", { type: "module" });
+  num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
+  worker = new Worker("worker.mjs?v=20261009export8", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -12,11 +13,9 @@ let meta,
   viewImages,
   fftPeak = 1,
   result,
-  compareResults = [],
-  zoomTimer,
-  centeredZoom = initialState?.centeredZoom??true;
+  compareResults = [];
 let restoreFit=initialState?.fit===true;
-const state = { start: 0, stop: 6250, chirp: 625, pulses: 8, rx: 0 };
+const state = { start: 0, stop: 6250, chirp: 625, pulses: 8, rx: 0, component:0, bgStart:0,bgStop:125,scanStart:625,scanStop:750 };
 function status(text, error = false) {
   $("status").textContent = text;
   $("status").classList.toggle("error", error);
@@ -58,12 +57,6 @@ function bands() {
       color: "#78b7ff18",
       line: "#78b7ff88",
     },
-    {
-      start: num("noiseStart"),
-      stop: num("noiseStop"),
-      color: "#57d8c013",
-      line: "#57d8c088",
-    },
     {start:num("scanStart"),stop:num("scanStop"),color:"#a855f710",line:"#7e22ce"},
     {
       start: state.chirp,
@@ -92,7 +85,7 @@ const iq = new LinePlot("iqPlot"),
   residualPlot = new LinePlot("residualPlot"),
   scan = new LinePlot("scanPlot", (k) => selectChirp(Math.round(k)));
 const scanPoints=new Map();
-const scanPlots=Object.fromEntries(['scanRange','scanVelocity','scanAcceleration','scanPhases','scanSnr'].map(id=>[id,new LinePlot(id)]));
+const scanPlots=Object.fromEntries(['scanRange','scanVelocity','scanAcceleration','scanPhases','scanSnr','scanRcs','scanDiameter'].map(id=>[id,new LinePlot(id)]));
 function updateScan(r) {
   const [r0,v0,a0]=r.best;
   let kinematics=[r0,v0,a0];
@@ -100,30 +93,53 @@ function updateScan(r) {
     const x=r.best[2]*r.midpoint-r.best[0],range=Math.hypot(x,r.best[1]);
     kinematics=[range,r.best[2]*x/range,r.best[2]**2*r.best[1]**2/range**3];
   }
-  scanPoints.set(r.start,{start:r.start,midpoint:r.midpoint,kinematics,beam:{phases:r.beam.phases,single:r.beam.single,peak:r.beam.peak}});
+  scanPoints.set(r.start,{start:r.start,midpoint:r.midpoint,kinematics,pulses:r.pulses,best:Array.from(r.best),model:r.model,grid:r.grid,referenceStarts:r.referenceStarts,beam:r.beam});
+  $("download").disabled=false;
+  drawScanHistory();
+}
+function drawScanHistory() {
+  if(!scanPoints.size)return;
   const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start),x=points.map(p=>Number(clock(p.start))+p.midpoint-meta.parameters.T_adc);
-  const cfg={x0:Number(clock(num('scanStart'))),x1:Number(clock(num('scanStop'))),xLabel:'Seconds since file start'};
+  const cfg={x0:Number(clock(num('scanStart'))),x1:Number(clock(num('scanStop'))),xLabel:'Seconds since file start',mode:'scatter',xFormat:t=>t.toFixed(5)};
   const line=(name,color,y)=>({name,color,x,y});
   const colors=['#0072b2','#d55e00','#009e73','#cc79a7','#111111'];
   for(const [id,index,label] of [['scanRange',0,'r₀ (m)'],['scanVelocity',1,'v₀ (m/s)'],['scanAcceleration',2,'a₀ (10⁶ m/s²)']])scanPlots[id].set([line(label,colors[index],points.map(p=>p.kinematics[index]))],{...cfg,yLabel:label,decimals:2,yFormat:id==='scanAcceleration'?v=>(v/1e6).toFixed(2):undefined});
   const pairs=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
   scanPlots.scanPhases.set(pairs.map(([a,b],i)=>line(`RX${b} − RX${a}`,['#0072b2','#d55e00','#009e73','#cc79a7','#111111','#e69f00'][i],points.map(p=>{const d=p.beam.phases[b]-p.beam.phases[a];return Math.atan2(Math.sin(d),Math.cos(d))*180/Math.PI;}))),{...cfg,yLabel:'Phase difference (°)',y0:-180,y1:180});
-  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>db(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>db(p.beam.peak)))],{...cfg,yLabel:'Matched / quiet (dB)'});
+  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>db(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>db(p.beam.peak)))],{...cfg,mode:'line',yLabel:'Matched / quiet (dB)'});
+  const control=(id,fallback)=>Number(document.getElementById(id)?.value??fallback);
+  const frequency=meta.parameters.f_start+meta.parameters.freq_slope*(meta.parameters.T_adc+(meta.samples-1)/(2*meta.parameters.fs));
+  const settings={temperature:control('rcsTemperature',9000),frequency,txPowerDbm:control('rcsPower',12),txGainDbi:control('rcsTxGain',6),rxGainDbi:control('rcsRxGain',6),lossDb:control('rcsLoss',0)};
+  const minimum=control('rcsDMin',.01)/1000,maximum=control('rcsDMax',20)/1000,key=JSON.stringify([settings,minimum,maximum]);
+  const valid=Object.values(settings).every(Number.isFinite)&&settings.temperature>0&&minimum>=1e-6&&maximum>=minimum&&maximum<=.1;
+  for(const point of points)if(point.rcsKey!==key){
+    point.rcsKey=key;
+    point.rcs=valid?[...point.beam.single,point.beam.peak].map((score,i)=>{
+      const sigma=estimateRcs(score,{...settings,range:point.kinematics[0],time:point.beam.effectiveTime},i===4?4:1);
+      return {sigma,diameters:diameterRoots(sigma,frequency,minimum,maximum).map(d=>1000*d)};
+    }):Array.from({length:5},()=>({sigma:NaN,diameters:[]}));
+  }
+  scanPlots.scanRcs.set(Array.from({length:5},(_,i)=>line(i===4?'Four-RX beamformed':`RX${i}`,colors[i],points.map(p=>p.rcs[i].sigma>0?10*Math.log10(p.rcs[i].sigma):NaN))),{...cfg,yLabel:'Estimated RCS (dBsm)',decimals:1});
+  scanPlots.scanDiameter.set(Array.from({length:5},(_,i)=>{
+    const count=Math.max(...points.map(p=>p.rcs[i].diameters.length));
+    return Array.from({length:count},(_,root)=>({name:`${i===4?'Four-RX beamformed':`RX${i}`} · solution ${root+1}`,color:colors[i],x,y:points.map(p=>p.rcs[i].diameters[root]??NaN)}));
+  }).flat(),{...cfg,mode:'line',yLabel:'PEC sphere diameter (mm)',decimals:2});
 }
+document.addEventListener('change',event=>{if(/^rcs/.test(event.target.id)&&event.target.id!=='rcsRange')drawScanHistory();});
 for (const map of maps)
   map.enableWindow({
     getRange: () => [num("bgStart"), num("bgStop")],
     enabled: () => loaded && !busy,
     limit: () => meta.total_chirps,
     preview: (start, stop) => {
-      $("bgStart").value = start;
-      $("bgStop").value = stop;
+      state.bgStart = start;
+      state.bgStop = stop;
       maps.forEach((map) => map.overlay({ bands: bands() }));
     },
     commit: () => {
       invalidate();
       status("Updating the complex background mean…");
-      $("background").click();
+      applyBackground();
     },
   });
 for (const map of maps)
@@ -156,7 +172,7 @@ for(const map of maps)map.enableWindow({
   getLabel:()=>`Analyze · ${num('scanStart')}–${num('scanStop')-1}`,
   getRange:()=>[num('scanStart'),num('scanStop')],
   enabled:()=>loaded&&!busy,limit:()=>meta.total_chirps,
-  preview:(start,stop)=>{$('scanStart').value=start;$('scanStop').value=stop;maps.forEach(m=>m.overlay({bands:bands()}));},
+  preview:(start,stop)=>{state.scanStart=start;state.scanStop=stop;maps.forEach(m=>m.overlay({bands:bands()}));},
   commit:()=>window.dispatchEvent(new Event('fmcw-view-state')),
 });
 for (const [index,map] of maps.entries()) map.enableZoom({
@@ -165,8 +181,8 @@ for (const [index,map] of maps.entries()) map.enableZoom({
   onZoom:bounds=>{
     const targets=index<2?maps.slice(0,2):[maps[2]];
     for(const target of targets)target.zoomTo({y0:bounds.y0,y1:bounds.y1});
-    $('viewStart').value=Math.max(0,Math.floor(bounds.x0));
-    $('viewStop').value=Math.min(meta.total_chirps-1,Math.ceil(bounds.x1)-1);
+    state.start=Math.max(0,Math.floor(bounds.x0));
+    state.stop=Math.min(meta.total_chirps,Math.ceil(bounds.x1));
     customView();
   },
 });
@@ -215,8 +231,8 @@ function drawView() {
   }
 }
 function view() {
-  const a = num("viewStart"),
-    b = num("viewStop") + 1;
+  const a = state.start,
+    b = state.stop;
   assertRange(a, b);
   state.start = a;
   state.stop = b;
@@ -228,34 +244,7 @@ function view() {
     fftSub: !!num("fftSub"),
   });
 }
-function applyCenteredZoom(allowBusy = false) {
-  if (!meta || (busy && !allowBusy)) return;
-  centeredZoom = initialState?.centeredZoom??true;
-let restoreFit=initialState?.fit===true;
-  const minimum = Math.max(1, state.pulses);
-  const factor = Math.pow(meta.total_chirps / minimum, num("zoom") / 100);
-  const width = Math.max(minimum, Math.round(meta.total_chirps / factor));
-  const center = state.chirp + state.pulses / 2;
-  const start = Math.max(
-    0,
-    Math.min(meta.total_chirps - width, Math.round(center - width / 2)),
-  );
-  $("viewStart").value = start;
-  $("viewStop").value = start + width - 1;
-  $("zoomLabel").textContent =
-    width === meta.total_chirps
-      ? `Full recording · ${width} chirps`
-      : `${(meta.total_chirps / width).toFixed(1)}× · ${width} chirps`;
-  view();
-}
-function customView() {
-  clearTimeout(zoomTimer);
-  centeredZoom = false;
-  $("zoom").value = 0;
-  view();
-  $("zoomLabel").textContent =
-    `Custom view · ${state.stop - state.start} chirps`;
-}
+function customView() {view();}
 function invalidate() {
   window.dispatchEvent(new Event("fmcw-invalidated"));
   const hadResult = !!result;
@@ -290,30 +279,15 @@ function selectChirp(k) {
   $("chirp").value = k;
   $("chirpSlider").value = k;
   updateSelection();
-  if (centeredZoom && num("zoom") > 0) applyCenteredZoom();
 }
 function applyTiming() {
   const previous = period;
-  const tail = num("tail") * 1e-6;
-  period =
-    meta.parameters.T_adc +
-    meta.samples / meta.parameters.fs +
-    meta.parameters.T_idle +
-    tail;
-  framePeriod = num("framePeriod") / 1000;
-  if (
-    !Number.isFinite(tail) ||
-    tail < 0 ||
-    !Number.isFinite(framePeriod) ||
-    framePeriod + 1e-12 < meta.chirps_per_frame * period
-  )
-    throw Error(
-      "Frame interval must be at least the complete chirp-train duration.",
-    );
-  if (previous !== undefined && previous !== period) invalidate();
-  worker.postMessage({ type: "period", period });
-  $("timingNote").textContent =
-    `${(period * 1e6).toFixed(3)} µs assumed chirp period · ${(framePeriod * 1e3).toFixed(5)} ms frame interval · reconstructed timing.`;
+  const tail = Number(initialState?.controls?.tail ?? meta.ramp_tail_us_assumption) * 1e-6;
+  period = Number(initialState?.timing?.period ?? (meta.parameters.T_adc + meta.samples / meta.parameters.fs + meta.parameters.T_idle + tail));
+  framePeriod = Number(initialState?.timing?.framePeriod ?? (initialState?.controls?.framePeriod ? Number(initialState.controls.framePeriod)/1000 : meta.chirps_per_frame*period));
+  if(!Number.isFinite(period)||period<=0||!Number.isFinite(framePeriod)||framePeriod+1e-12<meta.chirps_per_frame*period)throw Error('Invalid reconstructed timing.');
+  if(previous!==undefined&&previous!==period)invalidate();
+  worker.postMessage({type:'period',period});
   drawView();
   updateSelection();
 }
@@ -339,7 +313,7 @@ function trace(msg) {
         y: a.slice(offset + n, offset + 2 * n),
       },
     ],
-    { x0: x[0], x1: x[n - 1], xLabel: "Fast time (µs)", yLabel: "ADC counts" },
+    { x0: x[0], x1: x[n - 1], xLabel: "Fast time (µs)", yLabel: "ADC counts",mode:"line" },
   );
   const fx = Float64Array.from(
     { length: nf },
@@ -368,6 +342,7 @@ function trace(msg) {
       y0: -num("span"),
       y1: 5,
       xLabel: "Stored-I/Q beat frequency (MHz)",
+      mode:"line",
       yLabel: "dB / raw spectral peak",
     },
   );
@@ -598,7 +573,7 @@ function showMatch(r) {
       x0: xx[0],
       x1: xx.at(-1),
       xLabel: "Time from train ramp start (µs; gaps are unsampled)",
-      yLabel: "ADC counts",
+      yLabel: "ADC counts",mode:"line",
     },
   );
   residualPlot.set(
@@ -615,7 +590,7 @@ function showMatch(r) {
       x0: xx[0],
       x1: xx.at(-1),
       xLabel: "Time from train ramp start (µs; gaps are unsampled)",
-      yLabel: "Residual (ADC counts)",
+      yLabel: "Residual (ADC counts)",mode:"line",
     },
   );
   const rangeTime = Float64Array.from(
@@ -644,13 +619,10 @@ function showMatch(r) {
       y0: minRange - rangePad,
       y1: maxRange + rangePad,
       xLabel: "Time from train ramp start (µs; continuous trajectory)",
-      yLabel: "Slant range (m)",
+      yLabel: "Slant range (m)",mode:"line",
       decimals: 3,
     },
   );
-  if (centeredZoom && num("zoom") > 0) {
-    applyCenteredZoom(true);
-  }
   if (r.scanResults) {
     const s = r.scanResults,
       starts = [],
@@ -707,13 +679,6 @@ worker.onmessage = ({ data: m }) => {
   } else if (m.type === "background") {
     invalidate();
     power = m.power;
-    const n = meta.total_chirps,
-      mask = power.slice(2 * n),
-      missing = [...mask].filter((x) => x === 0).length;
-    $("padding").textContent =
-      `${missing} / ${n} invalid chirps excluded (grey).`;
-    $("bgNote").textContent =
-      `Mean: ${m.count} intact chirps in [${num("bgStart")}, ${num("bgStop")}).`;
     if (!busy) status("Complex background mean updated; plots refreshed.");
     applyTiming();
     view();
@@ -764,40 +729,18 @@ function safe(fn) {
     }
   };
 }
-$("background").onclick = safe(() => {
-  assertRange(num("bgStart"), num("bgStop"));
-  worker.postMessage({
-    type: "background",
-    start: num("bgStart"),
-    stop: num("bgStop"),
-  });
-});
-$("view").onclick = safe(customView);
-$("zoom").oninput = () => {
-  clearTimeout(zoomTimer);
-  zoomTimer = setTimeout(safe(applyCenteredZoom), 90);
+function applyBackground() {
+  assertRange(num('bgStart'),num('bgStop'));
+  worker.postMessage({type:'background',start:num('bgStart'),stop:num('bgStop')});
+}
+$("component").onchange=safe(view);
+$("rx").onchange=()=>{
+  invalidate();setBusy(true);loaded=false;state.rx=num('rx');
+  worker.postMessage({type:'rx',rx:state.rx,bgStart:state.bgStart,bgStop:state.bgStop});
 };
-$("zoom").onchange = safe(() => {
-  clearTimeout(zoomTimer);
-  applyCenteredZoom();
-});
-$("timing").onclick = safe(applyTiming);
-$("component").onchange = safe(view);
 $("fftSub").onchange = safe(view);
 for (const id of ["rawScale", "subScale", "span"])
   $(id).onchange = safe(drawView);
-$("rx").onchange = () => {
-  invalidate();
-  setBusy(true);
-  loaded = false;
-  state.rx = num("rx");
-  worker.postMessage({
-    type: "rx",
-    rx: state.rx,
-    bgStart: num("bgStart"),
-    bgStop: num("bgStop"),
-  });
-};
 $("chirp").onchange = () => selectChirp(num("chirp"));
 $("chirpSlider").oninput = () => selectChirp(num("chirpSlider"));
 $("pulses").onchange = () => {
@@ -806,28 +749,9 @@ $("pulses").onchange = () => {
 };
 $("traceSub").onchange = updateSelection;
 $("full").onclick = safe(() => {
-  clearTimeout(zoomTimer);
-  $("zoom").value = 0;
   for(const plot of [...maps,vx,vy])plot.resetZoom();
-  applyCenteredZoom();
+  state.start=0;state.stop=meta.total_chirps;view();
 });
-$("frame").onclick = safe(() => {
-  $("viewStart").value =
-    Math.floor(state.chirp / meta.chirps_per_frame) * meta.chirps_per_frame;
-  $("viewStop").value = num("viewStart") + meta.chirps_per_frame - 1;
-  customView();
-});
-$("around").onclick = safe(() => {
-  $("viewStart").value = Math.max(0, state.chirp - 125);
-  $("viewStop").value = Math.min(meta.total_chirps - 1, state.chirp + 249);
-  customView();
-});
-$("zoomBackground").onclick = safe(() => {
-  $("viewStart").value = num("bgStart");
-  $("viewStop").value = num("bgStop") - 1;
-  customView();
-});
-$("search").onclick = () => run();
 $("scan").onclick = () => run(false, true);
 $("cancel").onclick = () => worker.postMessage({ type: "cancel" });
 for (const id of [
@@ -840,14 +764,12 @@ for (const id of [
   "vMin",
   "vMax",
   "vN",
-  "noiseStart",
-  "noiseStop",
   "receiver",
   "phaseLoss",
   "computeBackend",
 ])
   $(id).addEventListener("change", invalidate);
-const savedBounds={fft:[.001,3,0,1000000,-900,900],direct:[-.6,.6,.05,.3,200,500]};
+const savedBounds={fft:[.001,3,0,1000000,0,900],direct:[-.6,.6,.05,.3,200,500]};
 let activeMethod='fft';
 function methodUI() {
  const radial=$("algorithm").value==='fft';
@@ -875,22 +797,18 @@ try {
   meta = await response.json();
   $("record").textContent =
     `Test 63 · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX`;
-  $("viewStop").value = meta.total_chirps - 1;
   $("chirpSlider").max = meta.total_chirps - 1;
-  $("framePeriod").value = (
-    (meta.parameters.T_adc +
-      meta.samples / meta.parameters.fs +
-      meta.parameters.T_idle +
-      meta.ramp_tail_us_assumption * 1e-6) *
-    meta.chirps_per_frame *
-    1e3
-  ).toFixed(5);
   $("fftNote").textContent =
     `Complex Hann-window FFT: ${meta.samples} acquired samples, ${2 ** Math.ceil(Math.log2(meta.samples))} FFT points. Fourier resolution ${(meta.parameters.fs / meta.samples / 1000).toFixed(2)} kHz; zero-padded bin spacing ${(meta.parameters.fs / 2 ** Math.ceil(Math.log2(meta.samples)) / 1000).toFixed(2)} kHz. Frequency = range beat + Doppler.`;
   restoreControls();
-  state.rx=num('rx');state.chirp=num('chirp');state.pulses=num('pulses');
-  state.start=num('viewStart');state.stop=num('viewStop')+1;
-  initializeState(()=>({centeredZoom,fit:!!result}));
+  state.rx=Number(initialState?.controls?.rx??0);state.chirp=num('chirp');state.pulses=num('pulses');
+  state.start=Number(initialState?.view?.start??initialState?.controls?.viewStart??0);
+  state.stop=Number(initialState?.view?.stop??(initialState?.controls?.viewStop!==undefined?Number(initialState.controls.viewStop)+1:meta.total_chirps));
+  for(const [prefix,a,b] of [['background','bgStart','bgStop'],['analysis','scanStart','scanStop']]){
+    state[a]=Number(initialState?.[prefix]?.start??initialState?.controls?.[a]??state[a]);
+    state[b]=Number(initialState?.[prefix]?.stop??initialState?.controls?.[b]??state[b]);
+  }
+  initializeState(()=>({view:{start:state.start,stop:state.stop},background:{start:state.bgStart,stop:state.bgStop},analysis:{start:state.scanStart,stop:state.scanStop},timing:{period,framePeriod},fit:!!result}));
   worker.postMessage({
     type: "init",
     rx:state.rx,
@@ -902,3 +820,20 @@ try {
   status(e.message, true);
   console.error(e);
 }
+$('download').onclick=async()=>{
+  const button=$('download');button.disabled=true;
+  try{
+    drawScanHistory();
+    const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
+    const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
+    const exporter=new Worker('export-worker.mjs?v=20261009export8',{type:'module'});
+    const bytes=await new Promise((resolve,reject)=>{
+      exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
+      exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};
+      exporter.postMessage({meta,points,result,settings,url:location.href});
+    });
+    const url=URL.createObjectURL(new Blob([bytes],{type:'application/x-hdf5'})),link=document.createElement('a');
+    link.href=url;link.download='fmcw-test63-analysis.h5';link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+  }catch(error){status(`HDF5 export: ${error.message}`,true);}
+  finally{button.disabled=!scanPoints.size&&!result;}
+};

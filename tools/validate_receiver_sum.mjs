@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {prepareReceiverTrains} from '../web/lab/receiver-trains.mjs';
+import {projectReceivers} from '../web/lab/beamforming.mjs';
 const w=(await WebAssembly.instantiate(fs.readFileSync('web/lab/core.wasm'),{})).instance.exports;
 const samples=32,rows=200,pulses=4,fsamp=12.5e6,period=25.37e-6;
 const read=()=>new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len()).slice();
@@ -15,6 +16,16 @@ receivers[1].fill(0,2*3*samples,2*4*samples); // Independent mean validity.
 const prepared=prepareReceiverTrains(receivers,{samples,rows,perFrame:100,start:150,pulses,bgStart:0,bgStop:20,noiseStart:20,noiseStop:120});
 assert.deepEqual(prepared.meanCounts,[20,19,20,20]);
 assert(prepared.referenceStarts.every(k=>k>=20&&k+pulses<=120&&Math.floor(k/100)===Math.floor((k+pulses-1)/100)));
+for(let a=0;a<4;a++) {
+  const first=prepared.referenceStarts[0],offset=(4+a*prepared.quietCount)*q.length;
+  assert.deepEqual([...prepared.data.subarray(offset,offset+q.length)],[...receivers[a].subarray(2*first*samples,2*(first+pulses)*samples)],'Noise trains must remain raw I/Q');
+}
+const beam=projectReceivers(receivers,q,{samples,rows,perFrame:100,start:150,pulses,bgStart:0,bgStop:20,noiseStart:20,noiseStop:120,conjugated:false});
+for(let a=0;a<4;a++) {
+  const start=prepared.referenceStarts[0];let re=0,im=0;
+  for(let j=0;j<q.length;j+=2){const r=receivers[a][2*start*samples+j],i=receivers[a][2*start*samples+j+1];re+=q[j]*r+q[j+1]*i;im+=q[j]*i-q[j+1]*r;}
+  assert.equal(beam.noise[0][2*a],re);assert.equal(beam.noise[0][2*a+1],im);
+}
 w.background(0,20);assert(w.prepare(150,pulses,20,120,0)>=8);
 ptr=w.allocate(prepared.data.length);new Float32Array(w.memory.buffer,ptr,prepared.data.length).set(prepared.data);
 assert.equal(w.search_receivers(ptr,prepared.data.length,4,prepared.quietCount,2),prepared.quietCount);w.release(ptr,prepared.data.length);

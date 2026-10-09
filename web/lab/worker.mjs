@@ -1,6 +1,6 @@
-import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009drag3';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009drag3';
-import {runRadial} from './radial-backend.mjs?v=20261009drag3';
+import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009export8';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009export8';
+import {runRadial} from './radial-backend.mjs?v=20261009export8';
 let wasm,
   meta,
   data,
@@ -9,6 +9,8 @@ let wasm,
   bgRange,
   noiseRange;
 let searchFinished=Promise.resolve();
+let spectrumEngine,spectrumModule,spectrumQueue=Promise.resolve();
+const spectrumCache=new Map();
 const streams=new Map();
 const send = (type, rest = {}) => postMessage({ type, ...rest });
 const copy = () =>
@@ -52,6 +54,7 @@ async function load(receiver) {
   send("loaded", { rx, verified_sha256: meta.transport[rx].sha256 });
 }
 function setBackground(a, b) {
+  if(String(bgRange)!==String([a,b]))for(const key of spectrumCache.keys())if(key.startsWith("sub:"))spectrumCache.delete(key);
   bgRange = [a, b];
   const count = wasm.background(a, b);
   if (!count) throw Error("Quiet mean interval contains no valid chirps");
@@ -63,16 +66,39 @@ function setBackground(a, b) {
     fft_n: 2 ** Math.ceil(Math.log2(meta.samples)),
   });
 }
-function view(start, stop, component, fftSub) {
+async function averagedSpectrum(sub) {
+  const key=sub?`sub:${bgRange}`:'raw';
+  if(spectrumCache.has(key))return spectrumCache.get(key);
+  const bounds=[...bgRange];
+  const promise=spectrumQueue.then(async()=>{
+    spectrumEngine??=(await WebAssembly.instantiate(spectrumModule,{})).exports;
+    const w=spectrumEngine,p=meta.parameters,nf=2**Math.ceil(Math.log2(meta.samples));
+    const values=new Float32Array(meta.total_chirps*nf);
+    for(let receiver=0;receiver<4;receiver++){
+      const z=await channel(receiver),ptr=w.allocate(z.length);
+      new Float32Array(w.memory.buffer,ptr,z.length).set(z);
+      w.load(ptr,meta.total_chirps,meta.samples,meta.chirps_per_frame,p.fs,p.T_adc,p.T_adc+meta.samples/p.fs+p.T_idle+meta.ramp_tail_us_assumption*1e-6,p.f_start,p.freq_slope);
+      w.release(ptr,z.length);if(sub)w.background(...bounds);
+      w.image(0,meta.total_chirps,sub?5:4);
+      const a=new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len());
+      for(let i=0;i<a.length;i++)values[i]+=a[i]/4;
+    }
+    return values;
+  });
+  spectrumQueue=promise.catch(()=>{});spectrumCache.set(key,promise);return promise;
+}
+async function view(start, stop, component, fftSub) {
   const images = [];
   for (const mode of [component, component + 1, fftSub ? 5 : 4]) {
     const height = wasm.image(start, stop, mode);
     images.push({ mode, height, values: copy() });
   }
-  wasm.image(0, meta.total_chirps, 4);
-  const ref = copy();
-  let peak = 0;
-  for (const v of ref) if (Number.isFinite(v) && v > peak) peak = v;
+  const [average,ref]=await Promise.all([averagedSpectrum(fftSub),averagedSpectrum(false)]);
+  const nf=2**Math.ceil(Math.log2(meta.samples));
+  images[2].values=new Float32Array((stop-start)*nf);
+  for(let j=0;j<nf;j++)images[2].values.set(average.subarray(j*meta.total_chirps+start,j*meta.total_chirps+stop),j*(stop-start));
+  let peak=0;
+  for(const v of ref)if(Number.isFinite(v)&&v>peak)peak=v;
   send("view", { start, stop, images, fft_peak: peak });
 }
 function trace(chirp) {
@@ -211,10 +237,11 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009drag3"),
+        fetch("core.wasm?v=20261009export8"),
         {},
       );
       wasm = result.instance.exports;
+      spectrumModule=result.module;
       await load(msg.rx ?? 0);
       setBackground(msg.bgStart, msg.bgStop);
     } else if (msg.type === "rx") {
@@ -227,7 +254,7 @@ onmessage = async ({ data: msg }) => {
     } else if (msg.type === "period") {
       wasm.set_period(msg.period);
     } else if (msg.type === "view") {
-      view(msg.start, msg.stop, msg.component, msg.fftSub);
+      await view(msg.start, msg.stop, msg.component, msg.fftSub);
     } else if (msg.type === "trace") {
       trace(msg.chirp);
     } else if (msg.type === "cancel") {
