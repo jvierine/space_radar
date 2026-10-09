@@ -15,3 +15,6 @@ __pycache__/
 /output/*.h5
 !/output/noise_normalized_four_chirps_6607.h5
 /output/*.pdf
+/lab-core/target/
+/web/lab/datasets/
+/web/lab/qa/

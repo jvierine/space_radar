@@ -4,6 +4,22 @@ Source for the [interactive simulator](https://juha.no/fmcw/sim/) and
 [Manim lecture](https://juha.no/fmcw/slides/), plus their Python signal model
 and scientific figure scripts.
 
+## Measurement browser
+
+[FMCW laboratory](https://juha.no/fmcw/lab/) uses a Rust/WebAssembly DSP engine
+and WebGL2 to explore complex recorded I/Q. It includes raw and quiet-mean
+subtracted slow-time/fast-time maps, reconstructed clock and chirp-number axes,
+per-chirp complex spectra, individual I/Q traces, and Eq. 25 trajectory searches
+for 1, 2, 4, 8 and 16 pulses. The velocity/position maps maximize over the omitted
+coordinate and stored-I/Q orientation. Searches run in a cancellable worker.
+
+Sources and exact build/data-preparation instructions are in
+[`web/lab/README.md`](web/lab/README.md); Rust lives in `lab-core/`.
+Original recordings and HDF5 products reside under `/mnt/shovel/fmcw` on
+`juha-no`, and are excluded from Git. The compiled Wasm is bundled with the web
+source. Individual frame clocks are not present in the new Test 63 recording;
+frame and chirp timing assumptions remain explicit and adjustable.
+
 ## Interactive simulator
 
 From the repository root:

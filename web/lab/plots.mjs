@@ -1,0 +1,348 @@
+const fg = "#a2b6c2",
+  grid = "#29414e",
+  gold = "#f1cf74",
+  teal = "#57d8c0";
+export const db = (x) => 10 * Math.log10(Math.max(x, 1e-30));
+const stops = [
+  [0.0, [9, 12, 27]],
+  [0.25, [68, 28, 94]],
+  [0.5, [164, 46, 87]],
+  [0.75, [237, 115, 78]],
+  [1, [249, 237, 164]],
+];
+function magma(t) {
+  t = Math.max(0, Math.min(1, t));
+  let k = 1;
+  while (stops[k][0] < t && k < 4) k++;
+  const a = stops[k - 1],
+    b = stops[k],
+    w = (t - a[0]) / (b[0] - a[0]);
+  return a[1].map((v, i) => v * (1 - w) + b[1][i] * w);
+}
+function diverging(t) {
+  t = Math.max(0, Math.min(1, t));
+  const a = t < 0.5 ? [37, 91, 139] : [242, 242, 231],
+    b = t < 0.5 ? [242, 242, 231] : [189, 74, 40],
+    w = t < 0.5 ? t * 2 : (t - 0.5) * 2;
+  return a.map((v, i) => v * (1 - w) + b[i] * w);
+}
+function sizeCanvas(canvas, width, height) {
+  const dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(width * dpr);
+  canvas.height = Math.round(height * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return ctx;
+}
+export class Heatmap {
+  constructor(id, onSelect) {
+    this.root = document.getElementById(id);
+    this.pixels = document.createElement("canvas");
+    this.pixels.className = "pixels";
+    this.axes = document.createElement("canvas");
+    this.axes.className = "axes";
+    this.root.append(this.pixels, this.axes);
+    const gl = (this.gl = this.pixels.getContext("webgl2", {
+      antialias: false,
+      preserveDrawingBuffer: true,
+    }));
+    if (!gl) throw Error("WebGL2 is required for the data maps.");
+    const vs = `#version 300 es\nin vec2 p;out vec2 uv;void main(){uv=(p+1.)/2.;gl_Position=vec4(p,0.,1.);}`;
+    const fs = `#version 300 es\nprecision highp float;uniform sampler2D image;uniform float lo,hi;uniform int kind;in vec2 uv;out vec4 color;vec3 magma(float x){vec3 a=vec3(9,12,27)/255.;vec3 b=vec3(68,28,94)/255.;vec3 c=vec3(164,46,87)/255.;vec3 d=vec3(237,115,78)/255.;vec3 e=vec3(249,237,164)/255.;return x<.25?mix(a,b,x*4.):x<.5?mix(b,c,(x-.25)*4.):x<.75?mix(c,d,(x-.5)*4.):mix(d,e,(x-.75)*4.);}void main(){float v=texture(image,uv).r;if(isnan(v)||isinf(v)){color=vec4(.24,.29,.32,1.);return;}float x=clamp((v-lo)/(hi-lo),0.,1.);vec3 c=kind==0?(x<.5?mix(vec3(37,91,139)/255.,vec3(242,242,231)/255.,x*2.):mix(vec3(242,242,231)/255.,vec3(189,74,40)/255.,(x-.5)*2.)):magma(x);color=vec4(c,1.);}`;
+    const compile = (type, source) => {
+      const shader = gl.createShader(type);
+      gl.shaderSource(shader, source);
+      gl.compileShader(shader);
+      if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS))
+        throw Error(gl.getShaderInfoLog(shader));
+      return shader;
+    };
+    const program = (this.program = gl.createProgram());
+    gl.attachShader(program, compile(gl.VERTEX_SHADER, vs));
+    gl.attachShader(program, compile(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(program);
+    if (!gl.getProgramParameter(program, gl.LINK_STATUS))
+      throw Error(gl.getProgramInfoLog(program));
+    gl.useProgram(program);
+    const buffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW,
+    );
+    const location = gl.getAttribLocation(program, "p");
+    gl.enableVertexAttribArray(location);
+    gl.vertexAttribPointer(location, 2, gl.FLOAT, false, 0, 0);
+    this.texture = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    this.pixels.onclick = (e) => {
+      if (!this.config || !onSelect) return;
+      const r = this.pixels.getBoundingClientRect();
+      onSelect(
+        this.config.x0 +
+          ((e.clientX - r.left) / r.width) * (this.config.x1 - this.config.x0),
+      );
+    };
+    new ResizeObserver(() => this.draw()).observe(this.root);
+  }
+  set(values, width, height, config) {
+    const gl = this.gl;
+    if (
+      width > gl.getParameter(gl.MAX_TEXTURE_SIZE) ||
+      height > gl.getParameter(gl.MAX_TEXTURE_SIZE)
+    )
+      throw Error(
+        "This view exceeds the GPU texture limit. Shorten the chirp interval.",
+      );
+    this.config = config;
+    this.values = values;
+    this.width = width;
+    this.height = height;
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.R32F,
+      width,
+      height,
+      0,
+      gl.RED,
+      gl.FLOAT,
+      values,
+    );
+    this.draw();
+  }
+  overlay(config) {
+    if (this.config) {
+      Object.assign(this.config, config);
+      this.draw();
+    }
+  }
+  draw() {
+    if (!this.config) return;
+    const { clientWidth: W, clientHeight: H } = this.root;
+    if (!W || !H) return;
+    const gl = this.gl,
+      r = this.pixels.getBoundingClientRect();
+    this.pixels.width = Math.round(
+      r.width * Math.min(devicePixelRatio || 1, 2),
+    );
+    this.pixels.height = Math.round(
+      r.height * Math.min(devicePixelRatio || 1, 2),
+    );
+    gl.viewport(0, 0, this.pixels.width, this.pixels.height);
+    gl.useProgram(this.program);
+    gl.uniform1f(gl.getUniformLocation(this.program, "lo"), this.config.lo);
+    gl.uniform1f(gl.getUniformLocation(this.program, "hi"), this.config.hi);
+    gl.uniform1i(
+      gl.getUniformLocation(this.program, "kind"),
+      this.config.kind || 0,
+    );
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    const ctx = sizeCanvas(this.axes, W, H);
+    ctx.clearRect(0, 0, W, H);
+    const left = 74,
+      top = 37,
+      width = W - 160,
+      height = H - 100,
+      c = this.config;
+    ctx.font = "11px system-ui";
+    ctx.fillStyle = fg;
+    ctx.strokeStyle = grid;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    for (let j = 0; j <= 4; j++) {
+      let v = c.y0 + ((c.y1 - c.y0) * j) / 4,
+        y = top + height * (1 - j / 4);
+      ctx.fillText(c.yFormat?.(v) ?? v.toFixed(2), left - 8, y);
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(left + width, y);
+      ctx.stroke();
+    }
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    const ticks = Math.max(2, Math.min(6, Math.floor(width / 155)));
+    for (let j = 0; j <= ticks; j++) {
+      const v = c.x0 + ((c.x1 - c.x0) * j) / ticks,
+        x = left + (width * j) / ticks;
+      ctx.fillText(
+        c.xFormat?.(v) ?? Math.round(v).toString(),
+        x,
+        top + height + 8,
+      );
+      if (c.topFormat) ctx.fillText(c.topFormat(v), x, 9);
+    }
+    ctx.fillText(c.xLabel ?? "", left + width / 2, H - 20);
+    ctx.save();
+    ctx.translate(17, top + height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(c.yLabel ?? "", 0, 0);
+    ctx.restore();
+    if (c.topLabel) {
+      ctx.textAlign = "right";
+      ctx.fillText(c.topLabel, left + width, 24);
+    }
+    const xp = (v) => left + ((v - c.x0) / (c.x1 - c.x0)) * width;
+    for (const band of c.bands ?? []) {
+      let a = Math.max(c.x0, band.start),
+        b = Math.min(c.x1, band.stop);
+      if (b <= a) continue;
+      ctx.fillStyle = band.color;
+      ctx.fillRect(xp(a), top, xp(b) - xp(a), height);
+      ctx.strokeStyle = band.line ?? band.color;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(xp(a), top);
+      ctx.lineTo(xp(a), top + height);
+      ctx.moveTo(xp(b), top);
+      ctx.lineTo(xp(b), top + height);
+      ctx.stroke();
+    }
+    if (c.frames) {
+      ctx.strokeStyle = "#b6c9d344";
+      ctx.lineWidth = 0.6;
+      for (
+        let k = Math.ceil(c.x0 / c.frames) * c.frames;
+        k < c.x1;
+        k += c.frames
+      ) {
+        ctx.beginPath();
+        ctx.moveTo(xp(k), top);
+        ctx.lineTo(xp(k), top + height);
+        ctx.stroke();
+      }
+    }
+    const bx = left + width + 15,
+      bw = 12;
+    for (let i = 0; i < height; i++) {
+      const rgb = (c.kind ? magma : diverging)(1 - i / height);
+      ctx.fillStyle = `rgb(${rgb.join(",")})`;
+      ctx.fillRect(bx, top + i, bw, 1.2);
+    }
+    ctx.fillStyle = fg;
+    ctx.textAlign = "left";
+    for (let i = 0; i <= 4; i++)
+      ctx.fillText(
+        (c.hi - ((c.hi - c.lo) * i) / 4).toFixed(c.kind ? 1 : 0),
+        bx + bw + 5,
+        top + (height * i) / 4,
+      );
+    ctx.save();
+    ctx.translate(W - 13, top + height / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(c.colorLabel ?? "", 0, 0);
+    ctx.restore();
+  }
+}
+export class LinePlot {
+  constructor(id, onSelect) {
+    this.root = document.getElementById(id);
+    this.canvas = document.createElement("canvas");
+    this.root.append(this.canvas);
+    this.root.style.display = "none";
+    this.canvas.onclick = (e) => {
+      if (!this.config || !onSelect) return;
+      const r = this.canvas.getBoundingClientRect(),
+        w = r.width - 100;
+      onSelect(
+        this.config.x0 +
+          ((e.clientX - r.left - 65) / w) * (this.config.x1 - this.config.x0),
+      );
+    };
+    new ResizeObserver(() => this.draw()).observe(this.root);
+  }
+  set(series, config) {
+    this.series = series;
+    this.config = config;
+    this.root.style.display = "block";
+    this.draw();
+  }
+  draw() {
+    if (!this.config) return;
+    const W = this.root.clientWidth,
+      H = this.root.clientHeight;
+    if (!W || !H) return;
+    const c = this.config,
+      ctx = sizeCanvas(this.canvas, W, H),
+      l = 65,
+      t = 28,
+      w = W - 100,
+      h = H - 83;
+    ctx.clearRect(0, 0, W, H);
+    let values = this.series.flatMap((s) =>
+        Array.from(s.y).filter(Number.isFinite),
+      ),
+      y0 = c.y0 ?? Math.min(...values),
+      y1 = c.y1 ?? Math.max(...values);
+    if (y0 === y1) {
+      y0--;
+      y1++;
+    }
+    const pad = c.y0 === undefined ? (y1 - y0) * 0.08 : 0;
+    y0 -= pad;
+    y1 += pad;
+    const xp = (x) => l + ((x - c.x0) / (c.x1 - c.x0)) * w,
+      yp = (y) => t + h - ((y - y0) / (y1 - y0)) * h;
+    ctx.font = "11px system-ui";
+    ctx.fillStyle = fg;
+    ctx.strokeStyle = grid;
+    ctx.textAlign = "right";
+    for (let j = 0; j <= 4; j++) {
+      const y = y0 + ((y1 - y0) * j) / 4;
+      ctx.fillText(y.toFixed(c.decimals ?? 0), l - 8, yp(y) + 3);
+      ctx.beginPath();
+      ctx.moveTo(l, yp(y));
+      ctx.lineTo(l + w, yp(y));
+      ctx.stroke();
+    }
+    ctx.textAlign = "center";
+    for (let i = 0; i <= 4; i++) {
+      const x = c.x0 + ((c.x1 - c.x0) * i) / 4;
+      ctx.fillText(c.xFormat?.(x) ?? x.toFixed(2), xp(x), t + h + 20);
+    }
+    ctx.fillText(c.xLabel ?? "", l + w / 2, H - 8);
+    ctx.save();
+    ctx.translate(13, t + h / 2);
+    ctx.rotate(-Math.PI / 2);
+    ctx.fillText(c.yLabel ?? "", 0, 0);
+    ctx.restore();
+    let leg = l;
+    for (const s of this.series) {
+      ctx.fillStyle = s.color;
+      ctx.textAlign = "left";
+      ctx.fillText(s.name, leg, 14);
+      leg += ctx.measureText(s.name).width + 22;
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = s.width ?? 1.2;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(l, t, w, h);
+      ctx.clip();
+      ctx.beginPath();
+      let pen = false;
+      for (let i = 0; i < s.y.length; i++) {
+        if (!Number.isFinite(s.y[i])) {
+          pen = false;
+          continue;
+        }
+        const x = s.x[i],
+          y = s.y[i];
+        if (!pen) {
+          ctx.moveTo(xp(x), yp(y));
+          pen = true;
+        } else ctx.lineTo(xp(x), yp(y));
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+}

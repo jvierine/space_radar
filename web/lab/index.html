@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>FMCW laboratory · I/Q data browser</title>
+    <link rel="stylesheet" href="style.css?v=20261009b" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <a href="../sim/">FMCW / laboratory</a>
+        <h1>Look inside the measurement.</h1>
+        <p id="record">Loading recording…</p>
+      </div>
+      <span class="engine" id="engine">Rust → WebAssembly · WebGL2</span>
+    </header>
+    <div class="status" id="status" role="status">
+      Loading the DSP engine and verified I/Q data…
+    </div>
+    <main>
+      <section class="card settings" id="settings">
+        <h2>Recording &amp; timing</h2>
+        <div class="fields">
+          <label
+            >Receiver<select id="rx">
+              <option value="0">RX0</option>
+              <option value="1">RX1</option>
+              <option value="2">RX2</option>
+              <option value="3">RX3</option>
+            </select></label
+          ><label
+            >ADC component<select id="component">
+              <option value="0">Real part</option>
+              <option value="2">Imaginary part</option>
+            </select></label
+          ><label
+            >Ramp tail (µs)<input
+              id="tail"
+              type="number"
+              value="0.37"
+              min="0"
+              step="0.01" /></label
+          ><label
+            >Frame interval (ms)<input
+              id="framePeriod"
+              type="number"
+              min="0"
+              step="0.001" /></label
+          ><button id="timing">Apply timing</button>
+        </div>
+        <p class="note" id="timingNote"></p>
+        <p class="note" id="padding"></p>
+      </section>
+      <section class="card settings">
+        <h2>Quiet background</h2>
+        <p class="note">
+          Subtract the complex mean at each fast-time sample. Choose intervals
+          that precede the event; no shot trigger is provided in this recording.
+        </p>
+        <div class="fields">
+          <label
+            >Mean: first chirp<input
+              id="bgStart"
+              type="number"
+              value="0"
+              min="0" /></label
+          ><label
+            >Mean: stop (exclusive)<input
+              id="bgStop"
+              type="number"
+              value="125"
+              min="1" /></label
+          ><label
+            >Noise: first chirp<input
+              id="noiseStart"
+              type="number"
+              value="125"
+              min="0" /></label
+          ><label
+            >Noise: stop (exclusive)<input
+              id="noiseStop"
+              type="number"
+              value="625"
+              min="1" /></label
+          ><button id="background">Apply quiet mean</button>
+        </div>
+        <p class="note" id="bgNote"></p>
+      </section>
+      <section class="card settings">
+        <div class="section-head">
+          <h2>Slow time × fast time</h2>
+          <div class="actions">
+            <button id="full">Full recording</button
+            ><button id="frame">Selected frame</button
+            ><button id="around">Around selection</button>
+          </div>
+        </div>
+        <div class="fields">
+          <label
+            >View: first chirp<input
+              id="viewStart"
+              type="number"
+              value="0"
+              min="0" /></label
+          ><label
+            >View: stop (exclusive)<input
+              id="viewStop"
+              type="number"
+              value="6250"
+              min="1" /></label
+          ><button id="view">Set view</button
+          ><label
+            >Raw ±counts<input
+              id="rawScale"
+              type="number"
+              value="2500"
+              min="1" /></label
+          ><label
+            >Residual ±counts<input
+              id="subScale"
+              type="number"
+              value="100"
+              min="1" /></label
+          ><label
+            >Spectrum span (dB)<input
+              id="span"
+              type="number"
+              value="70"
+              min="10"
+              max="140" /></label
+          ><label
+            >Spectrum<select id="fftSub">
+              <option value="1">Quiet mean removed</option>
+              <option value="0">Original I/Q</option>
+            </select></label
+          >
+        </div>
+        <p class="note">
+          Click a column to select its chirp. Gold marks the filter train; blue
+          marks the quiet mean; cyan marks the noise reference. Grey columns
+          have padding/nonfinite samples and are excluded from spectra and
+          filtering.
+        </p>
+        <h3>Raw stored voltage · undecoded</h3>
+        <div id="rawPlot" class="heatmap"></div>
+        <h3>Quiet complex mean removed · undecoded</h3>
+        <div id="subPlot" class="heatmap"></div>
+        <h3>One complex Fourier spectrum per chirp</h3>
+        <div id="fftPlot" class="heatmap"></div>
+        <p class="note" id="fftNote"></p>
+      </section>
+      <section class="card settings">
+        <h2>Inspect a chirp</h2>
+        <div class="fields">
+          <label
+            >Global chirp<input
+              id="chirp"
+              type="number"
+              min="0"
+              value="625" /></label
+          ><input
+            id="chirpSlider"
+            aria-label="Selected chirp"
+            type="range"
+            min="0"
+            max="6249"
+            value="625"
+          /><label
+            ><input type="checkbox" id="traceSub" checked /> Quiet mean
+            removed</label
+          >
+        </div>
+        <p id="chirpInfo" class="note"></p>
+        <div class="two">
+          <div>
+            <h3>Real &amp; imaginary voltage</h3>
+            <div class="lineplot" id="iqPlot"></div>
+          </div>
+          <div>
+            <h3>Selected chirp spectrum</h3>
+            <div class="lineplot" id="spectrumPlot"></div>
+          </div>
+        </div>
+      </section>
+      <section class="card" id="matchSettings">
+        <div class="section-head">
+          <h2>Match the trajectory</h2>
+          <span class="badge">Eq. 25 · complex I/Q · fixed quiet mean</span>
+        </div>
+        <p class="note">
+          Radar at (x₀, y₀), projectile at (v t, 0). x₀ is along-track offset at
+          the start of this train; y₀ is perpendicular distance. Slant range is
+          √((v t − x₀)² + y₀²). Each train stays within one frame.
+        </p>
+        <div class="fields">
+          <label
+            >Coherent pulses<select id="pulses">
+              <option>1</option>
+              <option>2</option>
+              <option selected>4</option>
+              <option>8</option>
+              <option>16</option>
+            </select></label
+          ><label
+            ><input type="checkbox" id="receiver" /> Approximate 175/350 kHz
+            HPFs</label
+          >
+        </div>
+        <table class="grid-input">
+          <thead>
+            <tr>
+              <th>Parameter</th>
+              <th>Minimum</th>
+              <th>Maximum</th>
+              <th>Grid points</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th>x₀ (m)</th>
+              <td>
+                <input id="xMin" type="number" value="-0.6" step="0.01" />
+              </td>
+              <td><input id="xMax" type="number" value="0.6" step="0.01" /></td>
+              <td>
+                <input id="xN" type="number" value="31" min="1" max="201" />
+              </td>
+            </tr>
+            <tr>
+              <th>y₀ (m)</th>
+              <td>
+                <input
+                  id="yMin"
+                  type="number"
+                  value="0.05"
+                  min="0.001"
+                  step="0.01"
+                />
+              </td>
+              <td>
+                <input
+                  id="yMax"
+                  type="number"
+                  value="0.3"
+                  min="0.001"
+                  step="0.01"
+                />
+              </td>
+              <td>
+                <input id="yN" type="number" value="11" min="1" max="101" />
+              </td>
+            </tr>
+            <tr>
+              <th>v (m/s)</th>
+              <td><input id="vMin" type="number" value="200" step="10" /></td>
+              <td><input id="vMax" type="number" value="500" step="10" /></td>
+              <td>
+                <input id="vN" type="number" value="41" min="1" max="301" />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="actions">
+          <button id="search" class="primary">Search selected train</button
+          ><button id="compare">Compare 1 / 2 / 4 / 8 / 16</button
+          ><button id="cancel" disabled>Cancel</button>
+        </div>
+        <div class="fields scan">
+          <label
+            >Time scan: first chirp<input
+              id="scanStart"
+              type="number"
+              value="625"
+              min="0" /></label
+          ><label
+            >Stop (exclusive)<input
+              id="scanStop"
+              type="number"
+              value="750"
+              min="1" /></label
+          ><label
+            >Start stride<input
+              id="scanStride"
+              type="number"
+              value="1"
+              min="1" /></label
+          ><button id="scan">Scan this interval</button>
+        </div>
+        <p class="note">
+          Time scans skip the background/noise reference intervals, padding and
+          frame-crossing trains. Increase stride for broad scans. The interface
+          remains responsive while Rust/Wasm searches in a worker.
+        </p>
+        <progress id="progress" value="0" max="1"></progress>
+        <p id="matchSummary" class="summary">
+          Select a train and search the bank.
+        </p>
+        <p class="note">
+          Colour = 10 log₁₀(observed matched energy / mean quiet-background
+          matched energy). The denominator is estimated separately for every
+          template and I/Q orientation. This includes residual clutter; it is
+          not a calibrated thermal SNR. A fixed noise-only filter averages 0 dB
+          in linear units; searching a bank raises the largest noise peak.
+        </p>
+        <div class="two">
+          <div>
+            <h3>v × x₀ · maximum over y₀</h3>
+            <div id="vxPlot" class="heatmap compact"></div>
+          </div>
+          <div>
+            <h3>v × y₀ · maximum over x₀</h3>
+            <div id="vyPlot" class="heatmap compact"></div>
+          </div>
+        </div>
+        <p class="note">
+          Both maps also maximize over stored-I/Q orientation. Mirroring (x₀, v)
+          → (−x₀, −v) gives the same monostatic range history. The bank peak is
+          a candidate fit, not an identified projectile.
+        </p>
+        <div class="lineplot" id="fitPlot"></div>
+        <div id="compareResults"></div>
+        <div class="lineplot" id="scanPlot"></div>
+      </section>
+    </main>
+    <footer>
+      Scientific source:
+      <a href="https://github.com/jvierine/space_radar">jvierine/space_radar</a>
+      · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
+      <a href="../slides/">Lecture</a>
+    </footer>
+    <script type="module" src="app.mjs?v=20261009b"></script>
+  </body>
+</html>
