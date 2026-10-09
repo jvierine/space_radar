@@ -10,6 +10,8 @@ from manim_slides import Slide
 from planck_to_ktb import Text
 from radial_fft_assets import generate
 from radial_fft_demo import generate_demo
+from radial_beamforming_slides import beamforming_slides
+from radial_fft_integration_slides import integration_slides
 
 FG, MUTED, BLUE, ORANGE, PURPLE = '#202830','#556575','#176BB0','#B55A00','#7939A8'
 
@@ -244,6 +246,8 @@ class RadialFFTSearch(Slide):
         self.play(FadeIn(self.prose('Correction sharing is approximate; final candidates use the full FMCW model.',24,MUTED).move_to(DOWN*3.25)))
         self.wait(1)
 
+        integration_slides(self)
+
         self.start('You give the bounds. The software builds the grid.',
             'Default bounds r0 .001..3 m, v0 0..600 m/s, a0 0..1e6 m/s2. FFT bin spacing sets r/v resolution; global phase derivative bounds set acceleration spacing and velocity groups. The phase tolerance is stagewise, not a bound on total model error. Oversized grids are rejected without truncating bounds; 32 million-node cap.')
         bounds=VGroup(self.eq(r'0.001\leq r_0\leq3\ \mathrm{m}',44),self.eq(r'0\leq v_0\leq600\ \mathrm{m/s}',44),self.eq(r'0\leq a_0\leq10^6\ \mathrm{m/s^2}',44)).arrange(DOWN,buff=.6).move_to(UP*.3)
@@ -301,6 +305,8 @@ class RadialFFTSearch(Slide):
         self.play(FadeIn(first));self.play(FadeIn(second))
         self.play(FadeIn(self.prose('M is the map score. MAX selects the largest score.',29,MUTED).move_to(DOWN*2.8)))
         self.wait(1)
+
+        beamforming_slides(self)
 
         self.start('From matched SNR to received signal power',
             'Thermal calibration assumption Tsys=9000 K; white noise across complex sample-rate bandwidth. rho is observed power/noise, so signal SNR S=max(rho-1,0). B=1/Tcoh with acquired sample time. Do not invert the GUI zero-dB display floor. Beam received-power estimate additionally divides by assumed ideal four-RX gain.')

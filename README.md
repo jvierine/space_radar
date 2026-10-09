@@ -106,9 +106,16 @@ See [simulator model and units](web/sim/README.md).
 
 | Source | Scene | Content |
 | --- | --- | --- |
-| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **25 slides:** coherent integration, full echo phase alignment, FFT matched-filter implementation, SNR → RCS → Mie diameter, and the GUI |
+| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **32 slides:** coherent integration, full echo phase alignment, FFT matched-filter implementation, receive-array beamforming, SNR → RCS → Mie diameter, and the GUI |
 | [`manim/fmcw_space_radar.py`](manim/fmcw_space_radar.py) | `FMCWSpaceRadar` | 47-slide radar lecture, simulations and measured examples |
 | [`manim/radar_equation_noise.py`](manim/radar_equation_noise.py) | `RadarEquationNoise` | Radar equation, thermal noise and coherent integration |
+
+The receive-array diagrams and beamforming animations are implemented in
+[`manim/radial_beamforming_slides.py`](manim/radial_beamforming_slides.py), using
+the PCB layout in [TI’s xWR1843BOOST guide, figure 10](https://www.ti.com/lit/ug/spruim4b/spruim4b.pdf).
+[`manim/radial_fft_integration_slides.py`](manim/radial_fft_integration_slides.py)
+explains full-vector equivalence, SNR optimality assumptions, and the sparse
+two-stage versus zero-filled FFT work estimate.
 
 Render and export the new deck:
 
