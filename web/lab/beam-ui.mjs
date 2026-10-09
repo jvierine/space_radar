@@ -3,9 +3,9 @@ import {estimateRcs,diameterRoots} from './rcs.mjs?v=20261009rcs1';
 const section=document.createElement('section');
 section.className='card';
 section.innerHTML=`<h2>Four-antenna coherent beamforming</h2>
-<p>Fix RX0 at 0°. Search the three relative receiver phases with equal amplitudes, after fitting the trajectory, then refine the best cell with Nelder–Mead. Rotate stored I/Q by exp(+iφ)/2 before combining.</p>
+<p>Fix RX0 at 0°. Search the three relative receiver phases with equal amplitudes, automatically after fitting the trajectory, then refine the best cell with Nelder–Mead. Rotate stored I/Q by exp(+iφ)/2 before combining.</p>
 <div class="fields"><label>Phase steps per receiver<input id="beamSteps" type="number" min="2" max="32" step="1" value="10"></label><button id="beamSearch" disabled>Search 1,000 phase combinations</button></div>
-<p id="beamStatus" role="status">Fit a trajectory first, then optimize the receiver phases for that train.</p>
+<p id="beamStatus" role="status">Fit a trajectory to automatically compute receiver phases, RCS, and sphere diameters.</p>
 <div id="beamResults" hidden><div id="beamTable"></div>
 <p id="beamTotal"></p>
 <details><summary>Individual receiver signal and quiet matched powers</summary><div id="beamDiagnostics" class="beam-growth"></div><p class="note">Each RX has its own complex mean at every fast-time sample. All use the same intact mean chirps, trajectory template, and independent quiet train starts. Relative powers are referenced to RX0; their difference gives each channel’s SNR difference.</p></details>
@@ -31,12 +31,12 @@ rcsSection.innerHTML=`<h3>RCS and equivalent metallic-sphere diameter</h3>
 <label>Diameter maximum (mm)<input id="rcsDMax" type="number" max="100" value="20" step="0.1"></label>
 </div><p id="rcsSummary" class="note"></p><div id="rcsTable" class="beam-growth"></div>
 <p class="note">Thermal-noise assumption: signal SNR = max(matched-energy ratio − 1, 0), with white input noise at the stated temperature. The range starts at the fitted train midpoint; conversion assumes constant range and RCS over the train. Beamforming uses ideal 4× receive gain. Clutter, correlated noise, phase optimization, and waveform mismatch can bias these conditional estimates. Diameters solve the monostatic perfectly conducting sphere Mie series within the bounds; multiple roots are listed. <a href="https://doc.comsol.com/6.4/doc/com.comsol.help.models.rf.rcs_sphere/rcs_sphere.html">PEC-sphere analytical reference</a>.</p>`;
-section.querySelector('#beamResults').append(rcsSection);
+section.querySelector('#beamResults').insertBefore(rcsSection,section.querySelector('.beam-marginals'));
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
 const pairs=[[1,2,3],[1,3,2],[2,3,1]];
 const maps=pairs.map(([x,y])=>new Heatmap(`beamPlot${x}${y}`));
 const worker=new Worker('beam-worker.mjs?v=20261009time1',{type:'module'});
-let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null;
+let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null,pendingAutomatic=false;
 function renderRcs() {
  if(!lastBeam || !current)return;
  const value=id=>Number(section.querySelector('#'+id).value),p=current.meta.parameters;
@@ -55,14 +55,17 @@ function renderRcs() {
 for(const input of rcsSection.querySelectorAll('input'))input.onchange=renderRcs;
 const refresh=()=>{button.disabled=!current||mainBusy||beamBusy;steps.disabled=mainBusy||beamBusy;button.textContent=`Search ${(Number(steps.value)**3).toLocaleString()} phase combinations`;};
 steps.oninput=refresh;
-window.addEventListener('fmcw-match',e=>{id++;current=e.detail;beamBusy=false;results.hidden=true;status.textContent=`Ready for ${current.match.pulses} chirps, ${current.match.start}–${current.match.start+current.match.pulses-1}.`;refresh();});
-window.addEventListener('fmcw-invalidated',()=>{id++;current=null;beamBusy=false;results.hidden=true;status.textContent='Fit a trajectory first, then optimize the receiver phases for that train.';refresh();});
-window.addEventListener('fmcw-busy',e=>{mainBusy=e.detail;refresh();});
-button.onclick=()=>{
+window.addEventListener('fmcw-match',e=>{id++;current=e.detail;beamBusy=false;pendingAutomatic=true;results.hidden=true;status.textContent=`Ready for ${current.match.pulses} chirps, ${current.match.start}–${current.match.start+current.match.pulses-1}.`;refresh();if(!mainBusy)startBeam();});
+window.addEventListener('fmcw-invalidated',()=>{id++;current=null;beamBusy=false;pendingAutomatic=false;results.hidden=true;status.textContent='Fit a trajectory to automatically compute receiver phases, RCS, and sphere diameters.';refresh();});
+window.addEventListener('fmcw-busy',e=>{mainBusy=e.detail;refresh();if(!mainBusy && pendingAutomatic)startBeam();});
+function startBeam(){
+ if(!current || mainBusy || beamBusy)return;
+ pendingAutomatic=false;
  const n=Number(steps.value);
  if(!Number.isInteger(n)||n<2||n>32){status.textContent='Choose an integer from 2 to 32 phase steps.';return;}
  beamBusy=true;refresh();worker.postMessage({id:++id,...current,steps:n});
-};
+}
+button.onclick=startBeam;
 worker.onmessage=({data:m})=>{
  if(m.id!==id)return;
  if(m.type==='progress'){status.textContent=m.text;return;}

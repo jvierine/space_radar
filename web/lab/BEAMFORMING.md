@@ -42,6 +42,10 @@ the added linear SNR relative to the added receiver alone.
 
 ## Conditional RCS and sphere diameter
 
+After a trajectory search completes, automatically process all four receivers,
+refine the beam phases, and display the RCS/diameter table above the three
+phase marginals. The phase-search button can rerun this calculation.
+
 Use 9000 K by default, with editable 12 dBm TX power, 6 dBi TX/RX gains,
 extra loss, and distance initialized from the fitted midpoint range. These
 power/gain defaults follow the existing capture-analysis assumptions.
