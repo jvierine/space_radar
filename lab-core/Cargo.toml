@@ -2,6 +2,7 @@
 name = "fmcw-lab-core"
 version = "0.1.0"
 edition = "2021"
+authors = ["Juha Vierinen"]
 [lib]
 crate-type = ["cdylib", "rlib"]
 [profile.release]

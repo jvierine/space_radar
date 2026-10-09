@@ -5,9 +5,9 @@ import h5py
 HERE=Path(__file__).resolve().parent
 with h5py.File(HERE/'assets/fmcw_lecture.h5') as h:
     models=[dict(name='3 mm sphere, 78 GHz',snr=h['three_mm/snr_gain_6_db'][0,0].item()),dict(name='6606: 5 mm, 78 GHz',snr=h['parallel/ideal_1m_snr_db'][0].item()),dict(name='6607: 6 mm, 79.5 GHz',snr=h['perpendicular/ideal_1m_snr_db'][0].item())]
-page='''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Space radar SNR calculator</title>
+page='''<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width"><meta name="author" content="Juha Vierinen"><title>Space radar SNR calculator</title>
 <style>body{background:#07111f;color:#f3f7fa;font:20px Georgia;margin:3em auto;max-width:1000px;padding:0 1em}h1{color:#f3d35a}label{display:block;margin:1.2em 0}input{width:280px;margin:0 1em}select{font:inherit}table{border-collapse:collapse;width:100%;margin:1.5em 0}th,td{padding:.8em;text-align:right;border-bottom:1px solid #456}th:first-child,td:first-child{text-align:left}small{color:#9db0c3}a{color:#74a9ff}output{color:#45c2b1}</style>
-<h1>Space radar: ideal thermal SNR</h1><p>Change transmitted power and antenna gain. The table uses coherent integration of 1, 2, 4 or 10 recorded chirps.</p>
+<h1>Space radar: ideal thermal SNR</h1><p>Juha Vierinen</p><p>Change transmitted power and antenna gain. The table uses coherent integration of 1, 2, 4 or 10 recorded chirps.</p>
 <label>Target <select id="target"></select></label>
 <label>TX power <input id="pt" type="range" min="-10" max="12" step=".5" value="12"><output id="ptv"></output></label>
 <label>TX gain <input id="gt" type="range" min="0" max="20" step=".5" value="6"><output id="gtv"></output></label>

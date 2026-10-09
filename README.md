@@ -1,5 +1,7 @@
 # FMCW radar: analysis, simulator and slides
 
+By **Juha Vierinen**.
+
 This repository contains three applications. **Start with the laboratory for
 coherent integration of recorded four-receiver data.**
 

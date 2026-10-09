@@ -18,6 +18,15 @@ DECKS = {
 }
 
 
+def credit_author(page):
+    """Visible deck credit, outside the animation and navigation controls."""
+    page = page.replace("</head>", '<meta name="author" content="Juha Vierinen">\n</head>')
+    credit = ('<span id="deck-author" style="position:fixed;right:110px;bottom:14px;'
+              'z-index:1000;background:white;color:#176BB0;padding:6px 10px;'
+              'border-radius:4px;font:14px Arial">Juha Vierinen</span>')
+    return page.replace("</body>", credit + "\n</body>")
+
+
 def export(scene, root):
     slug, title = DECKS[scene]
     dest = root / slug
@@ -78,7 +87,7 @@ def export(scene, root):
     page = page.replace("</body>", f'<script src="index_assets/{guard_name}"></script>\n</body>')
     if scene == "RadialFFTSearch":
         page = page.replace("</body>", '<a href="https://juha.no/fmcw/lab/" target="_blank" rel="noopener" style="position:fixed;left:18px;bottom:14px;z-index:1000;background:white;color:#176BB0;padding:8px 12px;border:1px solid #176BB0;border-radius:6px;font:16px Arial;text-decoration:none">Open laboratory ↗</a>\n</body>')
-    (dest / "index.html").write_text(page)
+    (dest / "index.html").write_text(credit_author(page))
     print(f"{scene}: {len(frames)} nonblank slide endings; exported to {dest}", flush=True)
 
 

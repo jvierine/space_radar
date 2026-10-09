@@ -1,5 +1,7 @@
 # Scientific reference model and analysis
 
+Analysis programs by **Juha Vierinen**.
+
 Use `conda run -n base python ...` from the repository root. Data products are
 HDF5. `analyze_captures.py` defines the exact retarded-range Equation 25 echo,
 its instantaneous frequency, receiver approximation and PEC-sphere solver.
