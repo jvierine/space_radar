@@ -1,7 +1,7 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009h";
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009j";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009h", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009j", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -12,7 +12,9 @@ let meta,
   fftPeak = 1,
   result,
   compareResults = [],
-  clockBase;
+  clockBase,
+  zoomTimer,
+  centeredZoom = true;
 const state = { start: 0, stop: 6250, chirp: 625, pulses: 4, rx: 0 };
 function status(text, error = false) {
   $("status").textContent = text;
@@ -63,7 +65,6 @@ function bands() {
       stop: state.chirp + state.pulses,
       color: "#f1cf7433",
       line: "#f1cf74",
-      label: `Coherent integration · ${state.pulses} chirps`,
       strong: true,
     },
   ];
@@ -99,6 +100,31 @@ for (const map of maps)
       invalidate();
       status("Updating the complex background mean…");
       $("background").click();
+    },
+  });
+for (const map of maps)
+  map.enableWindow({
+    label: "Coherent integration",
+    getLabel: () => `Coherent integration · ${state.pulses} chirps`,
+    moveLabel: "Move coherent integration window",
+    tone: "coherent-window",
+    resizable: false,
+    getRange: () => [state.chirp, state.chirp + state.pulses],
+    enabled: () => loaded && !busy,
+    limit: () => meta.total_chirps,
+    preview: (start) => {
+      const end =
+        (Math.floor(start / meta.chirps_per_frame) + 1) * meta.chirps_per_frame;
+      state.chirp = Math.max(0, Math.min(start, end - state.pulses));
+      $("chirp").value = state.chirp;
+      $("chirpSlider").value = state.chirp;
+      maps.forEach((plot) => plot.overlay({ bands: bands() }));
+    },
+    commit: () => {
+      const repeatSearch = !!result;
+      invalidate();
+      selectChirp(state.chirp);
+      if (repeatSearch) run();
     },
   });
 function common() {
@@ -158,6 +184,33 @@ function view() {
     fftSub: !!num("fftSub"),
   });
 }
+function applyCenteredZoom(allowBusy = false) {
+  if (!meta || (busy && !allowBusy)) return;
+  centeredZoom = true;
+  const minimum = Math.max(1, state.pulses);
+  const factor = Math.pow(meta.total_chirps / minimum, num("zoom") / 100);
+  const width = Math.max(minimum, Math.round(meta.total_chirps / factor));
+  const center = state.chirp + state.pulses / 2;
+  const start = Math.max(
+    0,
+    Math.min(meta.total_chirps - width, Math.round(center - width / 2)),
+  );
+  $("viewStart").value = start;
+  $("viewStop").value = start + width - 1;
+  $("zoomLabel").textContent =
+    width === meta.total_chirps
+      ? `Full recording · ${width} chirps`
+      : `${(meta.total_chirps / width).toFixed(1)}× · ${width} chirps`;
+  view();
+}
+function customView() {
+  clearTimeout(zoomTimer);
+  centeredZoom = false;
+  $("zoom").value = 0;
+  view();
+  $("zoomLabel").textContent =
+    `Custom view · ${state.stop - state.start} chirps`;
+}
 function invalidate() {
   result = undefined;
   vx.root.style.display = "none";
@@ -188,6 +241,7 @@ function selectChirp(k) {
   $("scanStart").value = k;
   $("scanStop").value = end;
   updateSelection();
+  if (centeredZoom && num("zoom") > 0) applyCenteredZoom();
 }
 function applyTiming() {
   const previous = period;
@@ -354,6 +408,9 @@ function axis(lo, hi, n) {
 function showMatch(r) {
   result = r;
   state.pulses = r.pulses;
+  state.chirp = r.start;
+  $("chirp").value = r.start;
+  $("chirpSlider").value = r.start;
   vx.root.style.display = "block";
   vy.root.style.display = "block";
   maps.forEach((m) => m.overlay({ bands: bands() }));
@@ -391,6 +448,14 @@ function showMatch(r) {
     y1: g.xMax === g.xMin ? g.xMax + 0.01 : g.xMax,
     yLabel: "Along-track offset x₀ (m)",
     yFormat: (x) => x.toFixed(2),
+    marker: {
+      column: Math.round(
+        ((r.best[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
+      ),
+      row: Math.round(
+        ((r.best[0] - g.xMin) / (g.xMax - g.xMin || 1)) * (nx - 1),
+      ),
+    },
   });
   vy.set(b, nv, ny, {
     ...opts,
@@ -398,6 +463,14 @@ function showMatch(r) {
     y1: g.yMax === g.yMin ? g.yMax + 0.01 : g.yMax,
     yLabel: "Perpendicular distance y₀ (m)",
     yFormat: (x) => x.toFixed(2),
+    marker: {
+      column: Math.round(
+        ((r.best[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
+      ),
+      row: Math.round(
+        ((r.best[1] - g.yMin) / (g.yMax - g.yMin || 1)) * (ny - 1),
+      ),
+    },
   });
   const [x, y, v, , , noiseCount] = r.best;
   const overlap =
@@ -497,6 +570,9 @@ function showMatch(r) {
       decimals: 3,
     },
   );
+  if (centeredZoom && num("zoom") > 0) {
+    applyCenteredZoom(true);
+  }
   if (r.scanResults) {
     const s = r.scanResults,
       starts = [],
@@ -610,7 +686,15 @@ $("background").onclick = safe(() => {
     stop: num("bgStop"),
   });
 });
-$("view").onclick = safe(view);
+$("view").onclick = safe(customView);
+$("zoom").oninput = () => {
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(safe(applyCenteredZoom), 90);
+};
+$("zoom").onchange = safe(() => {
+  clearTimeout(zoomTimer);
+  applyCenteredZoom();
+});
 $("timing").onclick = safe(applyTiming);
 $("component").onchange = safe(view);
 $("fftSub").onchange = safe(view);
@@ -636,25 +720,25 @@ $("pulses").onchange = () => {
 };
 $("traceSub").onchange = updateSelection;
 $("full").onclick = safe(() => {
-  $("viewStart").value = 0;
-  $("viewStop").value = meta.total_chirps - 1;
-  view();
+  clearTimeout(zoomTimer);
+  $("zoom").value = 0;
+  applyCenteredZoom();
 });
 $("frame").onclick = safe(() => {
   $("viewStart").value =
     Math.floor(state.chirp / meta.chirps_per_frame) * meta.chirps_per_frame;
   $("viewStop").value = num("viewStart") + meta.chirps_per_frame - 1;
-  view();
+  customView();
 });
 $("around").onclick = safe(() => {
   $("viewStart").value = Math.max(0, state.chirp - 125);
   $("viewStop").value = Math.min(meta.total_chirps - 1, state.chirp + 249);
-  view();
+  customView();
 });
 $("zoomBackground").onclick = safe(() => {
   $("viewStart").value = num("bgStart");
   $("viewStop").value = num("bgStop") - 1;
-  view();
+  customView();
 });
 $("search").onclick = () => run();
 $("compare").onclick = () => run(true);

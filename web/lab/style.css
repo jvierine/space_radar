@@ -335,3 +335,19 @@ footer {
 .background-window button:focus-visible {
   outline: 2px solid #f1cf74;
 }
+
+.coherent-window {
+  z-index: 3;
+  border-color: #f1cf74;
+  background: #f1cf7418;
+}
+.coherent-window.dragging {
+  background: #f1cf7435;
+}
+.coherent-window .window-label {
+  top: auto;
+  bottom: 28px;
+  background: #302918;
+  color: #f1cf74;
+  border-color: #f1cf74;
+}

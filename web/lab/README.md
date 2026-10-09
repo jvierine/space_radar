@@ -117,3 +117,12 @@ voltage is followed by the continuous geometric slant range
 from the fitted trajectory, not an independently measured range.
 The complex residual (background-subtracted measurement minus the fitted
 complex template, both Re and Im) appears immediately below the voltage fit.
+
+The measurement zoom slider starts at the full recording and zooms around the
+coherent train midpoint; selecting another train recenters an active zoom.
+Manual bounds and other view buttons retain custom views. Matched-filter maps
+always show the complete configured search grid and mark the global best fit
+with a cross; colour-scale maxima equal the actual matched-filter peak.
+The yellow integration window is draggable on all three measurement maps.
+Its pulse count stays fixed and trains stay within one frame. Releasing a
+moved train repeats an existing search; otherwise it selects the train.

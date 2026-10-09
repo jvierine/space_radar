@@ -91,16 +91,19 @@ export class Heatmap {
     new ResizeObserver(() => this.draw()).observe(this.root);
   }
   enableWindow(options) {
-    this.windowOptions = options;
-    const band = (this.windowBand = document.createElement("div"));
-    band.className = "background-window";
+    const band = document.createElement("div");
+    (this.windows ??= []).push({ band, options });
+    band.className = `background-window ${options.tone ?? ""}`;
     const label = document.createElement("button");
     label.type = "button";
     label.className = "window-label";
-    label.textContent = "Background";
-    label.setAttribute("aria-label", "Move background window");
+    label.textContent = options.label ?? "Background";
+    label.setAttribute(
+      "aria-label",
+      options.moveLabel ?? "Move background window",
+    );
     band.append(label);
-    for (const edge of ["start", "stop"]) {
+    for (const edge of options.resizable === false ? [] : ["start", "stop"]) {
       const handle = document.createElement("button");
       handle.type = "button";
       handle.className = `window-handle ${edge}`;
@@ -158,7 +161,11 @@ export class Heatmap {
       if (band.hasPointerCapture(event.pointerId))
         band.releasePointerCapture(event.pointerId);
       if (cancelled) options.preview(drag.start, drag.stop);
-      else options.commit();
+      else {
+        const current = options.getRange();
+        if (current[0] !== drag.start || current[1] !== drag.stop)
+          options.commit();
+      }
     };
     band.addEventListener("pointerup", (event) => finish(event));
     band.addEventListener("pointercancel", (event) => finish(event, true));
@@ -187,26 +194,40 @@ export class Heatmap {
     });
   }
   drawWindow() {
-    if (!this.windowBand || !this.config) return;
-    const [start, stop] = this.windowOptions.getRange();
-    const c = this.config,
-      rect = this.pixels.getBoundingClientRect();
-    const a = Math.max(start, c.x0),
-      b = Math.min(stop, c.x1);
-    this.windowBand.hidden = b <= a;
-    if (b <= a) return;
-    const width = this.root.clientWidth - 160;
-    Object.assign(this.windowBand.style, {
-      left: `${74 + ((a - c.x0) / (c.x1 - c.x0)) * width}px`,
-      top: "37px",
-      width: `${((b - a) / (c.x1 - c.x0)) * width}px`,
-      height: `${rect.height}px`,
-    });
-    this.windowBand.title = `Background chirps [${start}, ${stop}); drag to move, drag edges to resize`;
-    this.windowBand.querySelector(".start").hidden = start < c.x0;
-    this.windowBand.querySelector(".stop").hidden = stop > c.x1;
-    for (const button of this.windowBand.querySelectorAll("button"))
-      button.disabled = !this.windowOptions.enabled();
+    if (!this.windows || !this.config) return;
+    for (const { band, options } of this.windows) {
+      const [start, stop] = options.getRange();
+      const c = this.config,
+        rect = this.pixels.getBoundingClientRect();
+      const a = Math.max(start, c.x0),
+        b = Math.min(stop, c.x1);
+      band.hidden = b <= a;
+      if (b <= a) continue;
+      const width = this.root.clientWidth - 160;
+      Object.assign(band.style, {
+        left: `${74 + ((a - c.x0) / (c.x1 - c.x0)) * width}px`,
+        top: "37px",
+        width: `${Math.max(options.resizable === false ? 3 : 0, ((b - a) / (c.x1 - c.x0)) * width)}px`,
+        height: `${rect.height}px`,
+      });
+      const label = band.querySelector(".window-label");
+      label.textContent = options.getLabel?.() ?? options.label ?? "Background";
+      const labelCenter = Math.max(
+        label.offsetWidth / 2,
+        Math.min(
+          width - label.offsetWidth / 2,
+          (((a + b) / 2 - c.x0) / (c.x1 - c.x0)) * width,
+        ),
+      );
+      label.style.left = `${labelCenter - ((a - c.x0) / (c.x1 - c.x0)) * width}px`;
+      band.title = `${options.label ?? "Background"} chirps [${start}, ${stop}); drag to move${options.resizable === false ? "" : ", drag edges to resize"}`;
+      if (band.querySelector(".start"))
+        band.querySelector(".start").hidden = start < c.x0;
+      if (band.querySelector(".stop"))
+        band.querySelector(".stop").hidden = stop > c.x1;
+      for (const button of band.querySelectorAll("button"))
+        button.disabled = !options.enabled();
+    }
   }
   set(values, width, height, config) {
     const gl = this.gl;
@@ -361,6 +382,28 @@ export class Heatmap {
         ctx.stroke();
       }
     }
+    if (c.marker) {
+      const mx = left + ((c.marker.column + 0.5) / this.width) * width;
+      const my = top + (1 - (c.marker.row + 0.5) / this.height) * height;
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(left, top, width, height);
+      ctx.clip();
+      for (const [color, lineWidth] of [
+        ["#07131c", 5],
+        ["#ffffff", 2],
+      ]) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = lineWidth;
+        ctx.beginPath();
+        ctx.moveTo(mx - 8, my);
+        ctx.lineTo(mx + 8, my);
+        ctx.moveTo(mx, my - 8);
+        ctx.lineTo(mx, my + 8);
+        ctx.stroke();
+      }
+      ctx.restore();
+    }
     const bx = left + width + 15,
       bw = 12;
     for (let i = 0; i < height; i++) {
@@ -372,7 +415,9 @@ export class Heatmap {
     ctx.textAlign = "left";
     for (let i = 0; i <= 4; i++)
       ctx.fillText(
-        (c.hi - ((c.hi - c.lo) * i) / 4).toFixed(c.colorDecimals ?? (c.kind ? 1 : 0)),
+        (c.hi - ((c.hi - c.lo) * i) / 4).toFixed(
+          c.colorDecimals ?? (c.kind ? 1 : 0),
+        ),
         bx + bw + 5,
         top + (height * i) / 4,
       );
