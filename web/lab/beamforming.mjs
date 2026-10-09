@@ -1,3 +1,5 @@
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009gpu2';
+export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.
 // Local simplex coordinates are unwrapped so centroids remain continuous at 0/2π.
@@ -113,30 +115,8 @@ export function phaseSearch(event, noise, steps = 10) {
     gridPeak,gridPhases,gridReference,refinement:{iterations:refinement.iterations,evaluations:refinement.evaluations,converged:refinement.converged},single,channelPower,projections,growth:receiverGrowth(event,noise,phases,steps),total:{singleAverage,gain:totalGain,idealGain:4,percentIdeal:100*totalGain/4}};
 }
 
-export function commonValid(receivers, samples, rows) {
-  return Array.from({length:rows},(_,k)=>receivers.every(data=>{
-    let run=0;
-    for(let j=0;j<samples;j++) {
-      const r=data[2*(k*samples+j)],i=data[2*(k*samples+j)+1];
-      if(!Number.isFinite(r)||!Number.isFinite(i))return false;
-      run=(r===0&&i===0)?run+1:0;
-      if(run>=8)return false;
-    }
-    return true;
-  }));
-}
-
 export function projectReceivers(receivers, q, {samples, rows, perFrame, start, pulses, bgStart, bgStop, noiseStart, noiseStop, conjugated}) {
-  const valid=commonValid(receivers,samples,rows);
-  const trainValid=k=>k>=0&&k+pulses<=rows&&Math.floor(k/perFrame)===Math.floor((k+pulses-1)/perFrame)&&valid.slice(k,k+pulses).every(Boolean);
-  if(!trainValid(start))throw Error('Selected train is not intact on all four receivers.');
-  const quiet=Array.from({length:bgStop-bgStart},(_,i)=>bgStart+i).filter(k=>valid[k]);
-  if(!quiet.length)throw Error('No common intact quiet-mean chirps across four receivers.');
-  const means=receivers.map(data=>{
-    const mean=new Float64Array(2*samples);
-    for(const k of quiet)for(let j=0;j<2*samples;j++)mean[j]+=data[2*k*samples+j]/quiet.length;
-    return mean;
-  });
+  const {means,meanCounts,referenceStarts}=prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop});
   const project=k=>{
     const out=new Float64Array(8);
     for(let a=0;a<4;a++)for(let n=0;n<pulses;n++)for(let j=0;j<samples;j++){
@@ -147,13 +127,5 @@ export function projectReceivers(receivers, q, {samples, rows, perFrame, start, 
     }
     return out;
   };
-  const candidates=[];
-  for(let k=noiseStart;k+pulses<=noiseStop;){
-    // Independent reference blocks, outside event AND background-training data.
-    if(trainValid(k)&&(k+pulses<=start||k>=start+pulses)&&(k+pulses<=bgStart||k>=bgStop)){candidates.push(k);k+=pulses;}else k++;
-  }
-  if(candidates.length<8)throw Error('Need at least eight common intact noise trains outside the event and mean interval.');
-  const count=Math.min(24,candidates.length);
-  const referenceStarts=Array.from({length:count},(_,i)=>candidates[Math.floor(i*candidates.length/count)]);
-  return {event:project(start),noise:referenceStarts.map(project),referenceStarts,meanCount:quiet.length};
+  return {event:project(start),noise:referenceStarts.map(project),referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
 }

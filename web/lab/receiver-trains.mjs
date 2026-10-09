@@ -1,0 +1,46 @@
+// Independent receiver means; common intact event and independent quiet trains.
+export function commonValid(receivers, samples, rows) {
+  return Array.from({length:rows},(_,k)=>receivers.every(data=>{
+    let run=0;
+    for(let j=0;j<samples;j++) {
+      const r=data[2*(k*samples+j)],i=data[2*(k*samples+j)+1];
+      if(!Number.isFinite(r)||!Number.isFinite(i))return false;
+      run=(r===0&&i===0)?run+1:0;
+      if(run>=8)return false;
+    }
+    return true;
+  }));
+}
+export function prepareReceiverTrains(receivers,{samples,rows,perFrame,start,pulses,bgStart,bgStop,noiseStart,noiseStop}) {
+  if(receivers.length!==4 || receivers.some(z=>z.length!==2*samples*rows))throw Error('Need four synchronized receivers.');
+  if(![start,pulses,bgStart,bgStop,noiseStart,noiseStop].every(Number.isInteger) || bgStart<0 || bgStart>=bgStop || bgStop>rows || noiseStart<0 || noiseStart>=noiseStop || noiseStop>rows)throw Error('Invalid event/background bounds.');
+  const valid=commonValid(receivers,samples,rows);
+  const trainValid=k=>k>=0&&k+pulses<=rows&&Math.floor(k/perFrame)===Math.floor((k+pulses-1)/perFrame)&&valid.slice(k,k+pulses).every(Boolean);
+  if(!trainValid(start))throw Error('Selected train is not intact on all four receivers.');
+  const meanCounts=[];
+  const means=receivers.map(data=>{
+    const ownValid=commonValid([data],samples,rows);
+    const quiet=Array.from({length:bgStop-bgStart},(_,i)=>bgStart+i).filter(k=>ownValid[k]);
+    if(!quiet.length)throw Error('Receiver has no intact background-mean chirps.');
+    meanCounts.push(quiet.length);
+    const mean=new Float64Array(2*samples);
+    for(const k of quiet)for(let j=0;j<2*samples;j++)mean[j]+=data[2*k*samples+j]/quiet.length;
+    return mean;
+  });
+  const candidates=[];
+  for(let k=noiseStart;k+pulses<=noiseStop;) {
+    if(trainValid(k)&&(k+pulses<=start||k>=start+pulses)&&(k+pulses<=bgStart||k>=bgStop)){candidates.push(k);k+=pulses;}else k++;
+  }
+  if(candidates.length<8)throw Error('Need eight common intact quiet trains outside event and background-mean intervals.');
+  const count=Math.min(24,candidates.length);
+  const referenceStarts=Array.from({length:count},(_,i)=>candidates[Math.floor(i*candidates.length/count)]);
+  const width=2*samples*pulses,data=new Float32Array(width*4*(count+1));
+  const put=(receiver,k,index)=>{
+    for(let n=0;n<pulses;n++)for(let j=0;j<2*samples;j++)data[index*width+n*2*samples+j]=receivers[receiver][2*(k+n)*samples+j]-means[receiver][j];
+  };
+  for(let a=0;a<4;a++) {
+    put(a,start,a);
+    referenceStarts.forEach((k,i)=>put(a,k,4+a*count+i));
+  }
+  return {data,means,meanCounts,referenceStarts,quietCount:count};
+}

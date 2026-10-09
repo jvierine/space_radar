@@ -1,3 +1,5 @@
+import {drawMath,ensureMath} from './math-labels.mjs?v=20261009gpu2';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261009gpu2';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",
@@ -7,9 +9,10 @@ function addExport(plot,heatmap) {
   const button=document.createElement('button');button.type='button';
   button.className='plot-export';button.textContent='PNG ↓';button.title='Download figure on white background at 4× resolution';
   plot.root.append(button);
-  button.onclick=()=>{
+  button.onclick=async()=>{
     if(!plot.config)return;
     try {
+      await Promise.all([plot.config.xMath,plot.config.yMath].filter(Boolean).map(ensureMath));
       exportDensity=4;plot.draw();
       const canvas=document.createElement('canvas');
       canvas.width=Math.round(plot.root.clientWidth*4);canvas.height=Math.round(plot.root.clientHeight*4);
@@ -60,6 +63,7 @@ function sizeCanvas(canvas, width, height) {
 export class Heatmap {
   constructor(id, onSelect) {
     this.root = document.getElementById(id);
+    registerPlot(this);
     this.pixels = document.createElement("canvas");
     this.pixels.className = "pixels";
     this.axes = document.createElement("canvas");
@@ -180,12 +184,12 @@ export class Heatmap {
     if(!this.baseConfig)return;
     this.viewport={...this.viewport,...bounds};
     this.config={...this.baseConfig,...this.viewport};
-    this.updateResetButton();this.draw();
+    this.updateResetButton();this.draw();saveState();
   }
   resetZoom() {
     this.viewport=null;
     if(this.baseConfig)this.config={...this.baseConfig};
-    this.updateResetButton();this.draw();
+    this.updateResetButton();this.draw();saveState();
   }
   enableWindow(options) {
     const band = document.createElement("div");
@@ -343,6 +347,7 @@ export class Heatmap {
         "This view exceeds the GPU texture limit. Shorten the chirp interval.",
       );
     this.baseConfig = {...config};
+    restorePlot(this);
     this.config = {...config,...this.viewport};
     this.updateResetButton();
     this.values = values;
@@ -430,12 +435,13 @@ export class Heatmap {
       );
       if (c.topFormat) ctx.fillText(c.topFormat(v), x, 9);
     }
-    ctx.fillText(c.xLabel ?? "", left + width / 2, H - 20);
+    if(!drawMath(this,ctx,c.xMath,left+width/2,H-18))ctx.fillText(c.xLabel ?? "", left + width / 2, H - 20);
+    if(!drawMath(this,ctx,c.yMath,12,top+height/2,true)){
     ctx.save();
     ctx.translate(8, top + height / 2);
     ctx.rotate(-Math.PI / 2);
     ctx.fillText(c.yLabel ?? "", 0, 0);
-    ctx.restore();
+    ctx.restore();}
     if (c.topLabel) {
       ctx.textAlign = "right";
       ctx.fillText(c.topLabel, left + width, 24);
@@ -547,6 +553,7 @@ export class Heatmap {
 export class LinePlot {
   constructor(id, onSelect) {
     this.root = document.getElementById(id);
+    registerPlot(this);
     this.canvas = document.createElement("canvas");
     this.root.append(this.canvas);
     addExport(this,false);
@@ -583,8 +590,8 @@ export class LinePlot {
     let values = this.series.flatMap((s) =>
         Array.from(s.y).filter(Number.isFinite),
       ),
-      y0 = c.y0 ?? Math.min(...values),
-      y1 = c.y1 ?? Math.max(...values);
+      y0 = c.y0 ?? (values.length?Math.min(...values):0),
+      y1 = c.y1 ?? (values.length?Math.max(...values):1);
     if (y0 === y1) {
       y0--;
       y1++;
@@ -600,7 +607,7 @@ export class LinePlot {
     ctx.textAlign = "right";
     for (let j = 0; j <= 4; j++) {
       const y = y0 + ((y1 - y0) * j) / 4;
-      ctx.fillText(y.toFixed(c.decimals ?? 0), l - 8, yp(y) + 3);
+      ctx.fillText(c.yFormat?.(y)??y.toFixed(c.decimals ?? 0), l - 8, yp(y) + 3);
       ctx.beginPath();
       ctx.moveTo(l, yp(y));
       ctx.lineTo(l + w, yp(y));
@@ -644,6 +651,7 @@ export class LinePlot {
         } else ctx.lineTo(xp(x), yp(y));
       }
       ctx.stroke();
+      if(s.y.length===1&&Number.isFinite(s.y[0])){ctx.beginPath();ctx.arc(xp(s.x[0]),yp(s.y[0]),3,0,2*Math.PI);ctx.fill();}
       ctx.restore();
     }
   }

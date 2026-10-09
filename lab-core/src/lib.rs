@@ -67,6 +67,81 @@ fn fft(a: &mut [Z]) {
         len *= 2;
     }
 }
+// Complex64 FFT storage/arithmetic. Phase construction and power sums stay f64.
+#[derive(Clone, Copy, Default)]
+struct Z32 {
+    r: f32,
+    i: f32,
+}
+impl Z32 {
+    fn from(z: Z) -> Self {
+        Self {
+            r: z.r as f32,
+            i: z.i as f32,
+        }
+    }
+    fn mul(self, b: Self) -> Self {
+        Self {
+            r: self.r * b.r - self.i * b.i,
+            i: self.r * b.i + self.i * b.r,
+        }
+    }
+    fn power(self) -> f64 {
+        (self.r as f64).powi(2) + (self.i as f64).powi(2)
+    }
+}
+thread_local! {static FFT32_TWIDDLES: RefCell<std::collections::BTreeMap<usize,Vec<Z32>>> = RefCell::new(std::collections::BTreeMap::new());}
+fn fft32(a: &mut [Z32]) {
+    let n = a.len();
+    let mut j = 0;
+    for i in 1..n {
+        let mut bit = n >> 1;
+        while j & bit != 0 {
+            j ^= bit;
+            bit >>= 1;
+        }
+        j ^= bit;
+        if i < j {
+            a.swap(i, j);
+        }
+    }
+    FFT32_TWIDDLES.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let twiddles = cache.entry(n).or_insert_with(|| {
+            let mut result = Vec::with_capacity(n - 1);
+            let mut len = 2;
+            while len <= n {
+                for t in 0..len / 2 {
+                    let angle = -2. * PI * t as f64 / len as f64;
+                    result.push(Z32 {
+                        r: angle.cos() as f32,
+                        i: angle.sin() as f32,
+                    });
+                }
+                len *= 2;
+            }
+            result
+        });
+        let mut len = 2;
+        while len <= n {
+            for k in (0..n).step_by(len) {
+                for t in 0..len / 2 {
+                    let u = a[k + t];
+                    let v = a[k + t + len / 2].mul(twiddles[len / 2 - 1 + t]);
+                    a[k + t] = Z32 {
+                        r: u.r + v.r,
+                        i: u.i + v.i,
+                    };
+                    a[k + t + len / 2] = Z32 {
+                        r: u.r - v.r,
+                        i: u.i - v.i,
+                    };
+                }
+            }
+            len *= 2;
+        }
+    });
+}
 fn inner(q: &[Z], z: &[Z], conjugated: bool) -> Z {
     let mut r = 0.;
     let mut i = 0.;
@@ -139,6 +214,7 @@ struct Engine {
     fft_sub: Vec<f32>,
     fft_n: usize,
     event: Vec<Z>,
+    events: Vec<Vec<Z>>,
     noise: Vec<Vec<Z>>,
     pulses: usize,
     start: usize,
@@ -158,6 +234,24 @@ struct Engine {
     radial: Option<radial_search::Radial>,
 }
 impl Engine {
+    fn channels(&self) -> usize {
+        self.events.len().max(1)
+    }
+    fn event_power(&self, q: &[Z], conj: bool) -> f64 {
+        if self.events.is_empty() {
+            inner(q, &self.event, conj).power()
+        } else {
+            self.events.iter().map(|z| inner(q, z, conj).power()).sum()
+        }
+    }
+    fn quiet_power(&self, q: &[Z], conj: bool) -> f64 {
+        self.noise
+            .iter()
+            .map(|z| inner(q, z, conj).power())
+            .sum::<f64>()
+            / (self.noise.len() / self.channels()) as f64
+    }
+
     fn residual(&self, k: usize) -> Vec<Z> {
         (0..self.n)
             .map(|j| {
@@ -191,16 +285,16 @@ impl Engine {
             if !self.valid[k] {
                 continue;
             }
-            let mut a = vec![Z::default(); nf];
+            let mut a = vec![Z32::default(); nf];
             for j in 0..self.n {
                 let z = self.raw[k * self.n + j];
                 let b = if sub { self.bg[j] } else { Z::default() };
-                a[j] = Z {
-                    r: (z.r - b.r) * weights[j],
-                    i: (z.i - b.i) * weights[j],
+                a[j] = Z32 {
+                    r: ((z.r - b.r) * weights[j]) as f32,
+                    i: ((z.i - b.i) * weights[j]) as f32,
                 };
             }
-            fft(&mut a);
+            fft32(&mut a);
             for j in 0..nf {
                 values[k * nf + j] = (a[(j + nf / 2) % nf].power() / (wsum * wsum)) as f32;
             }
@@ -213,7 +307,11 @@ impl Engine {
     }
     fn theta(&self, index: usize) -> (f64, f64, f64) {
         if let Some(bank) = &self.radial {
-            let [r, v, g] = bank.theta(index);
+            let [r, v, g] = if index == self.best {
+                bank.refined.unwrap_or_else(|| bank.theta(index))
+            } else {
+                bank.theta(index)
+            };
             return (r, v, g);
         }
         if let Some(fast) = &self.fast {
@@ -230,7 +328,12 @@ impl Engine {
     }
     fn q(&self, index: usize) -> Vec<Z> {
         if let Some(bank) = &self.radial {
-            return radial_search::values(self, bank.theta(index));
+            let th = if index == self.best {
+                bank.refined.unwrap_or_else(|| bank.theta(index))
+            } else {
+                bank.theta(index)
+            };
+            return radial_search::values(self, th);
         }
         let (x, y, v) = self.theta(index);
         template(
@@ -321,6 +424,7 @@ pub unsafe extern "C" fn load(
             fft_sub: vec![],
             fft_n: n.next_power_of_two(),
             event: vec![],
+            events: vec![],
             noise: vec![],
             pulses: 1,
             start: 0,
@@ -476,6 +580,7 @@ pub extern "C" fn prepare(
         a.noise_bounds = (noise_start, noise_stop);
         a.pulses = pulses;
         a.receiver = receiver != 0;
+        a.events.clear();
         a.event = a.train(start, pulses);
         let mut candidates = vec![];
         let mut k = noise_start;
@@ -578,16 +683,11 @@ pub extern "C" fn search_batch(first: usize, count: usize) -> usize {
             let mut best = 0.;
             let mut sign = 0.;
             for conj in [false, true] {
-                let denom = a
-                    .noise
-                    .iter()
-                    .map(|n| inner(&q, n, conj).power())
-                    .sum::<f64>()
-                    / a.noise.len() as f64;
+                let denom = a.quiet_power(&q, conj);
                 if denom < 1e-24 {
                     continue;
                 }
-                let value = inner(&q, &a.event, conj).power() / denom;
+                let value = a.event_power(&q, conj) / denom;
                 if value > best {
                     best = value;
                     sign = conj as u8 as f32;
@@ -623,7 +723,7 @@ pub extern "C" fn matches() -> usize {
             v as f32,
             a.best_score as f32,
             a.signs[a.best],
-            a.noise.len() as f32,
+            (a.noise.len() / a.channels()) as f32,
         ]);
         a.scores.len()
     })
@@ -956,12 +1056,112 @@ pub extern "C" fn radial_batch(first: usize, count: usize) -> usize {
         stop
     })
 }
+// Prepared channel-major event trains, then channel-major quiet trains.
+// Per-channel complex means have already been removed; no voltage summation.
+#[no_mangle]
+pub unsafe extern "C" fn search_receivers(
+    ptr: *const f32,
+    len: usize,
+    channels: usize,
+    quiet: usize,
+    selected: usize,
+) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let width = 2 * a.n * a.pulses;
+        if channels != 4
+            || quiet < 8
+            || quiet > 24
+            || selected >= channels
+            || len != width * channels * (quiet + 1)
+        {
+            return -1;
+        }
+        let data = std::slice::from_raw_parts(ptr, len);
+        if data.iter().any(|v| !v.is_finite()) {
+            return -2;
+        }
+        let trains: Vec<Vec<Z>> = data
+            .chunks_exact(width)
+            .map(|train| {
+                train
+                    .chunks_exact(2)
+                    .map(|z| Z {
+                        r: z[0] as f64,
+                        i: z[1] as f64,
+                    })
+                    .collect()
+            })
+            .collect();
+        a.events = trains[..channels].to_vec();
+        a.event = a.events[selected].clone();
+        a.noise = trains[channels..].to_vec();
+        quiet as isize
+    })
+}
+#[no_mangle]
+pub extern "C" fn search_channels() -> usize {
+    ENGINE.with(|e| e.borrow().as_ref().unwrap().channels())
+}
+// Export the exact same prepared event/quiet trains used by the CPU bank.
+#[no_mangle]
+pub extern "C" fn radial_gpu_trains() -> usize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let events: Vec<&Vec<Z>> = if a.events.is_empty() {
+            vec![&a.event]
+        } else {
+            a.events.iter().collect()
+        };
+        a.out = events
+            .into_iter()
+            .chain(a.noise.iter())
+            .flat_map(|train| train.iter().flat_map(|z| [z.r as f32, z.i as f32]))
+            .collect();
+        a.noise.len() + a.channels()
+    })
+}
+#[no_mangle]
+pub extern "C" fn radial_gpu_group(index: usize, orientation: usize) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        if orientation > 1 || index >= a.radial.as_ref().unwrap().groups.len() {
+            return -1;
+        }
+        radial_search::gpu_group(a, index, orientation);
+        a.out.len() as isize
+    })
+}
+// Copy a completed GPU score bank atomically; refinement evaluates both signs.
+#[no_mangle]
+pub unsafe extern "C" fn radial_gpu_scores(ptr: *const f32, len: usize) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        if len != a.scores.len() {
+            return -1;
+        }
+        let scores = std::slice::from_raw_parts(ptr, len);
+        if scores
+            .iter()
+            .any(|v| v.is_infinite() || v.is_finite() && *v < 0.)
+        {
+            return -2;
+        }
+        a.scores.copy_from_slice(scores);
+        len as isize
+    })
+}
 #[no_mangle]
 pub extern "C" fn radial_refine(count: usize) -> isize {
     ENGINE.with(|e| {
         let mut e = e.borrow_mut();
         let a = e.as_mut().unwrap();
         radial_search::refine(a, count);
+        radial_search::refine_peak(a);
         if a.best_score < 0. {
             -1
         } else {

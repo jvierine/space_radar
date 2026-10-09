@@ -7,7 +7,7 @@ function element(id){
  if(!elements.has(id))elements.set(id,{value:id==='#beamSteps'?'10':'',hidden:false,disabled:false,append(){},after(){},insertBefore(){},querySelector:element,querySelectorAll(){return []}});
  return elements.get(id);
 }
-const context={document:{createElement:()=>element(Symbol()),getElementById:element},window:{addEventListener:(name,fn)=>listeners.set(name,fn)},Heatmap:class{resetZoom(){}set(){}},Worker:class{postMessage(job){jobs.push(job)}},console};
+const context={restoreControls:()=>{},document:{createElement:()=>element(Symbol()),getElementById:element},window:{addEventListener:(name,fn)=>listeners.set(name,fn)},Heatmap:class{resetZoom(){}set(){}},Worker:class{postMessage(job){jobs.push(job)}},console};
 const source=fs.readFileSync('web/lab/beam-ui.mjs','utf8').replace(/^import .*;\n/gm,'');
 vm.runInNewContext(source,context);
 const emit=(name,detail)=>listeners.get(name)({detail});

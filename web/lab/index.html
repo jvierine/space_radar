@@ -5,16 +5,19 @@
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <meta name="robots" content="noindex,nofollow" />
     <title>Coherent FMCW radar processing</title>
-    <link rel="stylesheet" href="style.css?v=20261009time1" />
+    <script>window.MathJax={startup:{typeset:false},svg:{fontCache:"none"}};</script>
+    <script defer src="vendor/mathjax-tex-svg.js"></script>
+    <link rel="stylesheet" href="style.css?v=20261009gpu2" />
   </head>
   <body>
     <header>
-      <div>
-        <a href="../sim/">FMCW / laboratory</a>
+      <a class="uit-logo" href="https://uit.no/" aria-label="UiT Norges arktiske universitet"><img src="uit-seal.svg" alt="UiT Norges arktiske universitet" width="92" height="92"></a>
+      <div class="header-title">
+        <a href="../sim/">FMCW / laboratory</a> · <a href="https://github.com/jvierine/space_radar">GitHub</a>
         <h1>Coherent FMCW radar processing</h1>
         <p id="record">Loading recording…</p>
       </div>
-      <span class="engine" id="engine">Rust → WebAssembly · WebGL2</span>
+      <span class="engine" id="engine">WebGPU / Rust-Wasm</span>
     </header>
     <div class="status" id="status" role="status">
       Loading the DSP engine and verified I/Q data…
@@ -24,7 +27,7 @@
         <h2>Recording &amp; timing</h2>
         <div class="fields">
           <label
-            >Receiver<select id="rx">
+            >Display receiver<select id="rx">
               <option value="0">RX0</option>
               <option value="1">RX1</option>
               <option value="2">RX2</option>
@@ -55,10 +58,7 @@
       </section>
       <section class="card settings">
         <h2>Quiet background</h2>
-        <p class="note">
-          Subtract the complex mean at each fast-time sample. Choose intervals
-          that precede the event; no shot trigger is provided in this recording.
-        </p>
+        <p class="note">Independent complex background subtraction per RX.</p>
         <div class="fields">
           <label
             >Mean: first chirp<input
@@ -151,14 +151,7 @@
             </select></label
           >
         </div>
-        <p class="note">
-          Drag the blue Background window on any of the three colour plots to
-          move it; drag its edges to resize. The complex mean updates when you
-          release. Drag a rectangle in empty plot space to zoom; a click selects a chirp. Reset full view restores all three plots. Drag the yellow
-          coherent-integration window to move the filter train; blue marks the
-          quiet mean; cyan marks the noise reference. Grey columns have
-          padding/nonfinite samples and are excluded from spectra and filtering.
-        </p>
+        <p class="note">Blue: background (move/resize). Yellow: integration train (move). Drag empty space to zoom; click to select.</p>
         <h3>Raw stored voltage · undecoded</h3>
         <div id="rawPlot" class="heatmap"></div>
         <h3>Quiet complex mean removed · undecoded</h3>
@@ -221,7 +214,7 @@
               <option selected>8</option>
               <option>16</option>
             </select></label
-          ><label
+          ><label>Compute<select id="computeBackend"><option value="auto" selected>WebGPU with CPU fallback</option><option value="cpu">CPU (Rust/Wasm)</option></select></label><label
             ><input type="checkbox" id="receiver" /> Approximate 175/350 kHz
             HPFs</label
           >
@@ -278,7 +271,7 @@
             </tr>
           </tbody>
         </table>
-        <p id="gridNote" class="note">Enter r₀, v₀ and a₀ bounds. Automatic spacing uses the coherent duration and a phase tolerance; FFT bins search range and radial velocity for each acceleration correction. The radial model is a phase-only quadratic approximation, not the full straight-line trajectory. Grid-point counts below show the generated axes.</p>
+        <p id="gridNote" class="note">Grid spacing is automatic; full bounds are retained.</p>
         <div class="actions">
           <button id="search" class="primary">Search selected train</button
           ><button id="compare">Compare 1 / 2 / 4 / 8 / 16</button
@@ -297,30 +290,14 @@
               type="number"
               value="750"
               min="1" /></label
-          ><label
-            >Start stride<input
-              id="scanStride"
-              type="number"
-              value="1"
-              min="1" /></label
-          ><button id="scan">Scan this interval</button>
+          ><button id="scan">Analyze every train</button>
         </div>
-        <p class="note">
-          Time scans skip the background/noise reference intervals, padding and
-          frame-crossing trains. Increase stride for broad scans. The interface
-          remains responsive while Rust/Wasm searches in a worker.
-        </p>
+        <p class="note">Scans exclude quiet intervals, padding, and frame crossings.</p>
         <progress id="progress" value="0" max="1"></progress>
         <p id="matchSummary" class="summary">
           Select a train and search the bank.
         </p>
-        <p class="note">
-          Colour = 10 log₁₀(observed matched energy / mean quiet-background
-          matched energy). The denominator is estimated separately for every
-          template and I/Q orientation. This includes residual clutter; it is
-          not a calibrated thermal SNR. A fixed noise-only filter averages 0 dB
-          in linear units; searching a bank raises the largest noise peak.
-        </p>
+        <p class="note">Matched energy / quiet background (dB); not calibrated thermal SNR.</p>
         <div class="two">
           <div>
             <h3 id="mapRTitle">v₀ × r₀ · maximum over a₀</h3>
@@ -331,12 +308,15 @@
             <div id="vyPlot" class="heatmap compact"></div>
           </div>
         </div>
-        <p class="note" id="mapNote">MAX projections of the complete r₀ / v₀ / a₀ FFT grid, including both I/Q orientations. Gray cells have nonpositive range over the train. Crosses mark the FFT grid peak; the strongest candidates are checked with the exact quadratic template for the reported fit. FFT-bin rounding and correction sharing make the grid scores approximate. A bank peak alone does not identify a projectile.</p>
+        <p class="note" id="mapNote">Four-RX incoherent matched energy. MAX projections; cross = grid peak.</p>
         <div class="lineplot" id="fitPlot"></div>
         <div class="lineplot" id="residualPlot"></div>
         <div class="lineplot" id="rangePlot"></div>
         <div id="compareResults"></div>
         <div class="lineplot" id="scanPlot"></div>
+        <div id="scanTimeline" hidden><h3>Analyze interval</h3>
+        <div class="lineplot" id="scanRange"></div><div class="lineplot" id="scanVelocity"></div><div class="lineplot" id="scanAcceleration"></div>
+        <div class="lineplot" id="scanPhases"></div><div class="lineplot" id="scanSnr"></div></div>
       </section>
     </main>
     <footer>
@@ -345,7 +325,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Lecture</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261009time1"></script>
-    <script type="module" src="beam-ui.mjs?v=20261009rcs2"></script>
+    <script type="module" src="app.mjs?v=20261009gpu2"></script>
+    <script type="module" src="beam-ui.mjs?v=20261009gpu2"></script>
   </body>
 </html>

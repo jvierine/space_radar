@@ -1,3 +1,6 @@
+import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009gpu2';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009gpu2';
+import {runRadial} from './radial-backend.mjs?v=20261009gpu2';
 let wasm,
   meta,
   data,
@@ -5,6 +8,8 @@ let wasm,
   generation = 0,
   bgRange,
   noiseRange;
+let searchFinished=Promise.resolve();
+const streams=new Map();
 const send = (type, rest = {}) => postMessage({ type, ...rest });
 const copy = () =>
   new Float32Array(
@@ -13,19 +18,19 @@ const copy = () =>
     wasm.result_len(),
   ).slice();
 const yieldUI = () => new Promise((r) => setTimeout(r, 0));
+async function channel(receiver) {
+  if(streams.has(receiver))return streams.get(receiver);
+  const spec=meta.transport[receiver];
+  const response=await fetch('datasets/test63/'+spec.file);
+  if(!response.ok)throw Error('Cannot load receiver data');
+  const bytes=await response.arrayBuffer();
+  if(bytes.byteLength!==spec.bytes)throw Error('Receiver file length mismatch');
+  const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(x=>x.toString(16).padStart(2,'0')).join('');
+  if(sha!==spec.sha256)throw Error('Receiver SHA-256 mismatch');
+  const result=new Float32Array(bytes);streams.set(receiver,result);return result;
+}
 async function load(receiver) {
-  rx = receiver;
-  const spec = meta.transport[rx];
-  const response = await fetch("datasets/test63/" + spec.file);
-  if (!response.ok) throw Error("Cannot load receiver data");
-  const bytes = await response.arrayBuffer();
-  if (bytes.byteLength !== spec.bytes)
-    throw Error("Receiver file length mismatch");
-  const sha = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-    .map((x) => x.toString(16).padStart(2, "0"))
-    .join("");
-  if (sha !== spec.sha256) throw Error("Receiver SHA-256 mismatch");
-  data = new Float32Array(bytes);
+  rx=receiver;data=await channel(rx);
   const ptr = wasm.allocate(data.length);
   new Float32Array(wasm.memory.buffer, ptr, data.length).set(data);
   const p = meta.parameters;
@@ -44,7 +49,7 @@ async function load(receiver) {
     p.freq_slope,
   );
   wasm.release(ptr, data.length);
-  send("loaded", { rx, verified_sha256: sha });
+  send("loaded", { rx, verified_sha256: meta.transport[rx].sha256 });
 }
 function setBackground(a, b) {
   bgRange = [a, b];
@@ -103,8 +108,17 @@ function setup(job, pulses, start) {
 async function bank(job, pulses, start, token, phase = "search", scan = false) {
   const started = performance.now();
   let total = setup(job, pulses, start);
+  const receivers=await Promise.all(meta.transport.map((_,i)=>channel(i)));
+  if(token!==generation)return null;
+  const trains=prepareReceiverTrains(receivers,{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:job.noiseStart,noiseStop:job.noiseStop});
+  const ptr=wasm.allocate(trains.data.length);
+  try {
+    new Float32Array(wasm.memory.buffer,ptr,trains.data.length).set(trains.data);
+    if(wasm.search_receivers(ptr,trains.data.length,4,trains.quietCount,rx)<0)throw Error('Invalid four-receiver trains');
+  } finally {wasm.release(ptr,trains.data.length);}
+
   let automatic = null, cells = null;
-  let radialSpec=null;
+  let radialSpec=null,compute={backend:"CPU (Rust/Wasm)",fallbackReason:null};
   if (job.algorithm === "fft") {
     const g=job.grid;
     total=wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,32000000);
@@ -121,8 +135,16 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     if (!windows)
       throw Error("No intact independent trains in the scan interval.");
   }
-  const batch = job.algorithm === "fft" ? 1 : 32;
-  for (let first = 0; first < total; first += batch) {
+  if(radialSpec){
+    const g=job.grid;
+    try{compute=await runRadial({w:wasm,info:radialSpec,backend:job.computeBackend??'auto',
+      begin:()=>wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,32000000),
+      cancelled:()=>token!==generation,yieldUI,
+      progress:(fraction,backend)=>send('progress',{fraction,pulses,phase:`${phase} · ${backend} · ${total} corrections`,windows})});
+    }catch(error){if(token!==generation)return null;throw error;}
+  }
+  const batch = 32;
+  for (let first = 0; first < (radialSpec ? 0 : total); first += batch) {
     if (token !== generation) return null;
     if(radialSpec) wasm.radial_batch(first,batch); else wasm.search_batch(first, batch);
     send("progress", {
@@ -171,9 +193,12 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     noiseRange,
     bgRange,
     receiver: job.receiver,
+    searchReceivers: 4,
+    referenceStarts: trains.referenceStarts,
     rx,
     period: job.period,
     algorithm: job.algorithm ?? "direct",
+    ...compute,
     automatic,
     cells,
     nodes,
@@ -186,7 +211,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009brush2"),
+        fetch("core.wasm?v=20261009gpu2"),
         {},
       );
       wasm = result.instance.exports;
@@ -210,20 +235,44 @@ onmessage = async ({ data: msg }) => {
       send("cancelled");
     } else if (msg.type === "search") {
       const token = ++generation;
+      const previous=searchFinished;
+      let release;
+      searchFinished=new Promise(resolve=>{release=resolve;});
+      await previous;
+      try {
+      if(token!==generation)return;
       const results = [];
       for (const n of msg.compare ? (msg.algorithm==="fft" ? [2,4,8,16] : [1,2,4,8,16]) : [msg.pulses]) {
-        if(msg.scan && msg.algorithm==='fft') {
+        if(msg.scan) {
           let winner=null,scan=[];
-          for(let start=msg.scanStart;start<msg.scanStop;start+=msg.scanStride) {
+          const receivers=await Promise.all(meta.transport.map((_,i)=>channel(i)));
+          const valid=commonValid(receivers,meta.samples,meta.total_chirps);
+          send('scan-start',{start:msg.scanStart,stop:msg.scanStop});
+          for(let start=msg.scanStart;start+n<=msg.scanStop;start++) {
             if(token!==generation)return;
             if(start<msg.noiseStop && start+n>msg.noiseStart || start<bgRange[1] && start+n>bgRange[0])continue;
+            if(Math.floor(start/meta.chirps_per_frame)!==Math.floor((start+n-1)/meta.chirps_per_frame)||!valid.slice(start,start+n).every(Boolean))continue;
             if(wasm.prepare(start,n,msg.noiseStart,msg.noiseStop,+msg.receiver)<0)continue;
             const candidate=await bank({...msg,scan:false},n,start,token,'time scan');
-            if(!candidate)return;scan.push(start,candidate.best[3],...candidate.best.slice(0,3));
+            if(!candidate)return;
+            const p=meta.parameters;
+            (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
+            const projections=projectReceivers(receivers,copy(),{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses:n,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:msg.noiseStart,noiseStop:msg.noiseStop,conjugated:candidate.best[4]>0});
+            candidate.beam=phaseSearch(projections.event,projections.noise,msg.beamSteps??10);
+            // RCS sampled coherent time is unchanged by receiver phases.
+            (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
+            const q=copy();let sum=0,energy=0;
+            for(let i=0;i<q.length;i+=2){const a=Math.hypot(q[i],q[i+1]);sum+=a;energy+=a*a;}
+            candidate.beam.effectiveTime=sum*sum/(p.fs*energy);
+            candidate.beam.referenceStarts=projections.referenceStarts;candidate.beam.meanCount=projections.meanCount;
+            candidate.scanPoint=true;send('match',{result:candidate});
+            scan.push(start,candidate.best[3],...candidate.best.slice(0,3));
+            send('scan-progress',{fraction:(start+n-msg.scanStart)/(msg.scanStop-msg.scanStart),start});
+            await yieldUI();if(token!==generation)return;
             if(!winner || candidate.best[3]>winner.best[3])winner=candidate;
           }
           if(!winner)throw Error('No intact independent trains in the scan interval.');
-          winner.scanResults=Float32Array.from(scan);results.push(winner);send('match',{result:winner});continue;
+          winner.scanResults=Float32Array.from(scan);winner.scanPoint=false;results.push(winner);send('match',{result:winner});continue;
         }
         let result = await bank(
           msg,
@@ -254,6 +303,7 @@ onmessage = async ({ data: msg }) => {
         send("match", { result, interim: !!msg.compare });
       }
       send("complete", { results });
+      } finally {release();}
     }
   } catch (error) {
     send("error", { message: error.message, stack: error.stack });

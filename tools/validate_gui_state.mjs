@@ -1,0 +1,21 @@
+import assert from 'node:assert/strict';
+import {encodeState,decodeState} from '../web/lab/gui-state.mjs';
+const state={controls:{rx:'3',receiver:true,xMin:'0.001',vMin:'-900',yMax:'1000000',scanStart:'750',scanStop:'900',beamSteps:'10'},plots:{rawPlot:{x0:750,x1:900,y0:2,y1:8}},centeredZoom:false,fit:true};
+const url=encodeState('https://juha.no/fmcw/lab/?other=kept',state);
+assert.deepEqual(decodeState(url),{version:1,...state});assert.equal(new URL(url).searchParams.get('other'),'kept');
+assert.equal(decodeState('https://juha.no/fmcw/lab/?gui=broken'),null);
+assert.equal(decodeState('https://juha.no/fmcw/lab/?gui=%7B%22version%22%3A2%7D'),null);
+globalThis.location={href:url};
+const input={id:'vMin',tagName:'INPUT',type:'number',value:'0'},checkbox={id:'receiver',tagName:'INPUT',type:'checkbox',checked:false};
+globalThis.document={querySelectorAll:()=>[input,checkbox],addEventListener(){}};
+globalThis.window={addEventListener(){}};
+let saved;globalThis.history={replaceState:(a,b,href)=>{saved=href;}};
+const controller=await import('../web/lab/gui-state.mjs?restore-test');
+controller.restoreControls();assert.equal(input.value,'-900');assert.equal(checkbox.checked,true);
+const plot={root:{id:'rawPlot'},baseConfig:{x0:0,x1:1000,y0:0,y1:20}};
+controller.registerPlot(plot);controller.restorePlot(plot);assert.deepEqual(plot.viewport,state.plots.rawPlot);
+// A raw-map brush stores only vertical bounds; encoding must include its current x view.
+plot.viewport={y0:2,y1:8};plot.config={x0:750,x1:900,y0:2,y1:8};
+controller.initializeState(()=>({fit:true,centeredZoom:false}));controller.saveState();await new Promise(r=>setTimeout(r,200));
+assert.deepEqual(decodeState(saved).plots.rawPlot,state.plots.rawPlot);
+console.log('PASS: URL controls, plot viewport, scan bounds, receiver/background settings, version and malformed-state handling');

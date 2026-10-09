@@ -191,7 +191,8 @@ FFT matched-energy/quiet-energy ratio. The same correction and bins are
 applied to each of the up to 24 independent quiet-reference trains. Strongest
 128 candidates are checked by direct inner products with the actual quadratic
 template in both orientations. The reported fitted voltage and score are
-directly verified; this candidate check does not guarantee the continuous
+directly verified and followed by bounded Nelder–Mead refinement in the
+continuous r0/v0/a0 domain; this local refinement does not guarantee its global
 maximum. Maps are complete MAX projections v0×r0 (over a0) and v0×a0 (over r0).
 Crosses and colour maxima refer to the actual FFT grid peak, which is labeled
 separately from the verified fit and may be a different node.
@@ -201,7 +202,8 @@ one-chirp spectrum is already provided above; one-chirp matched searches
 remain available only in the existing direct geometry reference. Switching
 methods preserves each method's own bounds. Radial time scans apply the same
 bank independently to every valid start and show the best verified candidate;
-use a coarse start stride for broad intervals.
+every contained intact start is analyzed. The purple interval controls its
+bounds; maps, phase estimates and scalar history plots update point by point.
 
 Validate with:
 
@@ -220,3 +222,6 @@ the machine and browser. Source: `lab-core/src/radial_search.rs`; harness:
 `6ac509d9d83f597ac920e7de`. The older geometry-coordinate FFT implementation
 and its regression harness remain in source but are not the viewer's radial
 search path.
+
+See [GPU.md](GPU.md) for four-receiver incoherent scoring, complex64 CPU/WebGPU
+FFTs, fallback behavior, URL state, scan outputs and validation commands.

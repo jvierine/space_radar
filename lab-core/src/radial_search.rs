@@ -9,6 +9,7 @@ pub(super) struct Radial {
     pub groups: Vec<(usize, usize, usize)>, // acceleration index, velocity begin/end
     pub epsilon: f64,
     pub bin_loss: f64,
+    pub refined: Option<[f64; 3]>,
 }
 fn axis(lo: f64, hi: f64, step: f64) -> Vec<f64> {
     let intervals = ((hi - lo) / step).ceil().max(0.) as usize;
@@ -155,6 +156,7 @@ impl Radial {
             groups,
             epsilon,
             bin_loss,
+            refined: None,
         })
     }
     pub fn theta(&self, i: usize) -> [f64; 3] {
@@ -182,31 +184,35 @@ fn spectrum(
     nf: usize,
     ns: usize,
     columns: &[usize],
-) -> Vec<Z> {
-    let mut rows = vec![Z::default(); a.pulses * nf];
+) -> Vec<Z32> {
+    let mut rows = vec![Z32::default(); a.pulses * nf];
     for k in 0..a.pulses {
         for j in 0..a.n {
             let q = corr[k * a.n + j];
-            rows[k * nf + j] = z[k * a.n + j].mul(Z {
-                r: q.r,
-                i: if conj { q.i } else { -q.i },
+            rows[k * nf + j] = Z32::from(z[k * a.n + j]).mul(Z32 {
+                r: q.r as f32,
+                i: (if conj { q.i } else { -q.i }) as f32,
             });
         }
-        fft(&mut rows[k * nf..(k + 1) * nf]);
+        fft32(&mut rows[k * nf..(k + 1) * nf]);
     }
-    let mut out = vec![Z::default(); columns.len() * ns];
+    let mut out = vec![Z32::default(); columns.len() * ns];
     for (i, &j) in columns.iter().enumerate() {
         let col = &mut out[i * ns..(i + 1) * ns];
         for k in 0..a.pulses {
             col[k] = rows[k * nf + j];
         }
         if ns > 1 {
-            fft(col);
+            fft32(col);
         }
     }
     out
 }
-pub(super) fn search_group(a: &mut Engine, index: usize) {
+fn group_plan(
+    a: &Engine,
+    index: usize,
+    orientation: usize,
+) -> (Vec<Z>, Vec<usize>, Vec<(usize, usize)>) {
     let bank = a.radial.as_ref().unwrap();
     let (ia, first, last) = bank.groups[index];
     let (nf, ns) = (bank.nf, bank.ns);
@@ -245,35 +251,55 @@ pub(super) fn search_group(a: &mut Engine, index: usize) {
             }
         }
     }
+    let sign = if orientation == 0 { 1. } else { -1. };
+    let mut columns: Vec<usize> = nodes
+        .iter()
+        .map(|(_, f)| bin(sign * f[0], a.fs, nf))
+        .collect();
+    columns.sort_unstable();
+    columns.dedup();
+    let lookup: Vec<(usize, usize)> = nodes
+        .iter()
+        .map(|(i, f)| {
+            (
+                *i,
+                columns.binary_search(&bin(sign * f[0], a.fs, nf)).unwrap() * ns
+                    + bin(sign * f[1], 1. / a.period, ns),
+            )
+        })
+        .collect();
+    (corr, columns, lookup)
+}
+
+pub(super) fn search_group(a: &mut Engine, index: usize) {
+    let (nf, ns) = {
+        let b = a.radial.as_ref().unwrap();
+        (b.nf, b.ns)
+    };
     for orientation in 0..2 {
-        let sign = if orientation == 0 { 1. } else { -1. };
-        let mut columns: Vec<usize> = nodes
-            .iter()
-            .map(|(_, f)| bin(sign * f[0], a.fs, nf))
-            .collect();
-        columns.sort_unstable();
-        columns.dedup();
-        let lookup: Vec<(usize, usize)> = nodes
-            .iter()
-            .map(|(i, f)| {
-                (
-                    *i,
-                    columns.binary_search(&bin(sign * f[0], a.fs, nf)).unwrap() * ns
-                        + bin(sign * f[1], 1. / a.period, ns),
-                )
-            })
-            .collect();
-        let event = spectrum(a, &a.event, &corr, orientation == 1, nf, ns, &columns);
+        let (corr, columns, lookup) = group_plan(a, index, orientation);
+        let events: Vec<&Vec<Z>> = if a.events.is_empty() {
+            vec![&a.event]
+        } else {
+            a.events.iter().collect()
+        };
+        let mut event = vec![0.; columns.len() * ns];
+        for z in events {
+            let spec = spectrum(a, z, &corr, orientation == 1, nf, ns, &columns);
+            for (d, z) in event.iter_mut().zip(spec) {
+                *d += z.power();
+            }
+        }
         let mut noise = vec![0.; event.len()];
         for z in &a.noise {
             let spec = spectrum(a, z, &corr, orientation == 1, nf, ns, &columns);
             for (d, z) in noise.iter_mut().zip(spec) {
-                *d += z.power() / a.noise.len() as f64;
+                *d += z.power() / (a.noise.len() / a.channels()) as f64;
             }
         }
         for (i, j) in lookup {
             if noise[j] > 1e-24 {
-                let score = (event[j].power() / noise[j]) as f32;
+                let score = (event[j] / noise[j]) as f32;
                 if !a.scores[i].is_finite() || score > a.scores[i] {
                     a.scores[i] = score;
                     a.signs[i] = orientation as f32;
@@ -282,7 +308,33 @@ pub(super) fn search_group(a: &mut Engine, index: usize) {
         }
     }
 }
+// Float32 complex arrays; index fields are u32 bit patterns, never rounded floats.
+// Header: samples, pulses, nf, ns, quiet trains, nodes, columns.
+pub(super) fn gpu_group(a: &mut Engine, index: usize, orientation: usize) {
+    let (corr, columns, lookup) = group_plan(a, index, orientation);
+    let bank = a.radial.as_ref().unwrap();
+    a.out = vec![
+        a.n as f32,
+        a.pulses as f32,
+        bank.nf as f32,
+        bank.ns as f32,
+        a.noise.len() as f32,
+        lookup.len() as f32,
+        columns.len() as f32,
+    ];
+    a.out
+        .extend(corr.iter().flat_map(|z| [z.r as f32, z.i as f32]));
+    a.out
+        .extend(columns.iter().map(|&i| f32::from_bits(i as u32)));
+    a.out.extend(
+        lookup
+            .iter()
+            .flat_map(|&(i, j)| [f32::from_bits(i as u32), f32::from_bits(j as u32)]),
+    );
+}
+
 pub(super) fn refine(a: &mut Engine, count: usize) {
+    a.radial.as_mut().unwrap().refined = None;
     let mut top: Vec<usize> = (0..a.scores.len())
         .filter(|&i| a.scores[i].is_finite())
         .collect();
@@ -296,14 +348,9 @@ pub(super) fn refine(a: &mut Engine, count: usize) {
         }
         let mut best = (0., 0.);
         for conj in [false, true] {
-            let noise = a
-                .noise
-                .iter()
-                .map(|z| inner(&q, z, conj).power())
-                .sum::<f64>()
-                / a.noise.len() as f64;
+            let noise = a.quiet_power(&q, conj);
             if noise > 1e-24 {
-                let score = inner(&q, &a.event, conj).power() / noise;
+                let score = a.event_power(&q, conj) / noise;
                 if score > best.0 {
                     best = (score, conj as u8 as f32);
                 }
@@ -315,6 +362,153 @@ pub(super) fn refine(a: &mut Engine, count: usize) {
             a.best_score = best.0;
             a.best = i;
         }
+    }
+}
+
+fn exact_score(a: &Engine, th: [f64; 3]) -> (f64, f32) {
+    if !valid(a, th) {
+        return (-1., 0.);
+    }
+    let q = values(a, th);
+    if q.iter().map(|z| z.power()).sum::<f64>() < 1e-24 {
+        return (-1., 0.);
+    }
+    let mut best = (-1., 0.);
+    for conj in [false, true] {
+        let quiet = a.quiet_power(&q, conj);
+        if quiet > 1e-24 {
+            let score = a.event_power(&q, conj) / quiet;
+            if score.is_finite() && score > best.0 {
+                best = (score, conj as u8 as f32);
+            }
+        }
+    }
+    best
+}
+// Bounded Nelder-Mead in grid-spacing units, using the actual quadratic phase.
+// The discrete MAX maps remain unchanged; only the reported best-fit is refined.
+pub(super) fn refine_peak(a: &mut Engine) {
+    if a.best_score < 0. {
+        return;
+    }
+    let bank = a.radial.as_ref().unwrap();
+    let seed = bank.theta(a.best);
+    let axes = [&bank.axes[0], &bank.axes[2], &bank.axes[1]];
+    let bounds = axes.map(|axis| [axis[0], *axis.last().unwrap()]);
+    let active: Vec<usize> = (0..3).filter(|&i| axes[i].len() > 1).collect();
+    let steps = axes.map(|axis| {
+        if axis.len() > 1 {
+            axis[1] - axis[0]
+        } else {
+            1.
+        }
+    });
+    let dimension = active.len();
+    if dimension == 0 {
+        return;
+    }
+    let evaluate = |x: Vec<f64>| {
+        let mut th = seed;
+        for (j, &i) in active.iter().enumerate() {
+            th[i] += x[j] * steps[i];
+        }
+        let value = if (0..3).any(|i| th[i] < bounds[i][0] || th[i] > bounds[i][1]) {
+            -1.
+        } else {
+            exact_score(a, th).0
+        };
+        (x, value)
+    };
+    let mut simplex = vec![evaluate(vec![0.; dimension])];
+    for (j, &i) in active.iter().enumerate() {
+        let mut x = vec![0.; dimension];
+        x[j] = if seed[i] + 0.5 * steps[i] <= bounds[i][1] {
+            0.5
+        } else {
+            -0.5
+        };
+        simplex.push(evaluate(x));
+    }
+    for _ in 0..300 {
+        simplex.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let diameter = simplex
+            .iter()
+            .skip(1)
+            .flat_map(|v| v.0.iter().zip(&simplex[0].0).map(|(x, y)| (x - y).abs()))
+            .fold(0., f64::max);
+        if diameter < 1e-5 {
+            break;
+        }
+        let centre: Vec<f64> = (0..dimension)
+            .map(|j| simplex[..dimension].iter().map(|v| v.0[j]).sum::<f64>() / dimension as f64)
+            .collect();
+        let reflected = evaluate(
+            centre
+                .iter()
+                .zip(&simplex[dimension].0)
+                .map(|(c, x)| 2. * c - x)
+                .collect(),
+        );
+        if reflected.1 > simplex[0].1 {
+            let expanded = evaluate(
+                centre
+                    .iter()
+                    .zip(&reflected.0)
+                    .map(|(c, x)| c + 2. * (x - c))
+                    .collect(),
+            );
+            simplex[dimension] = if expanded.1 > reflected.1 {
+                expanded
+            } else {
+                reflected
+            };
+        } else if reflected.1 > simplex[dimension - 1].1 {
+            simplex[dimension] = reflected;
+        } else {
+            let outside = reflected.1 > simplex[dimension].1;
+            let target = if outside {
+                &reflected.0
+            } else {
+                &simplex[dimension].0
+            };
+            let contracted = evaluate(
+                centre
+                    .iter()
+                    .zip(target)
+                    .map(|(c, x)| c + 0.5 * (x - c))
+                    .collect(),
+            );
+            if contracted.1
+                > if outside {
+                    reflected.1
+                } else {
+                    simplex[dimension].1
+                }
+            {
+                simplex[dimension] = contracted;
+            } else {
+                let best = simplex[0].0.clone();
+                for v in simplex.iter_mut().skip(1) {
+                    *v = evaluate(
+                        v.0.iter()
+                            .zip(&best)
+                            .map(|(x, b)| b + 0.5 * (x - b))
+                            .collect(),
+                    );
+                }
+            }
+        }
+    }
+    simplex.sort_by(|a, b| b.1.total_cmp(&a.1));
+    if simplex[0].1 > a.best_score {
+        let mut th = seed;
+        for (j, &i) in active.iter().enumerate() {
+            th[i] += simplex[0].0[j] * steps[i];
+        }
+        let (score, sign) = exact_score(a, th);
+        a.best_score = score;
+        a.signs[a.best] = sign;
+        a.radial.as_mut().unwrap().refined = Some(th);
     }
 }
 
@@ -369,8 +563,14 @@ mod tests {
                 let slow = if conj { ns - 3 } else { 3 };
                 let transformed = spectrum(a, &event, &corr, conj, nf, ns, &[fast]);
                 let expected = inner(&q, &event, conj);
-                assert!((transformed[slow].r - expected.r).abs() < 1e-8);
-                assert!((transformed[slow].i - expected.i).abs() < 1e-8);
+                assert!(
+                    (transformed[slow].r as f64 - expected.r).abs()
+                        < 2e-5 * (1. + expected.power().sqrt())
+                );
+                assert!(
+                    (transformed[slow].i as f64 - expected.i).abs()
+                        < 2e-5 * (1. + expected.power().sqrt())
+                );
             }
         });
     }

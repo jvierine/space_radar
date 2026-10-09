@@ -1,7 +1,8 @@
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009time1";
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009gpu2';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261009gpu2";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id).value),
-  worker = new Worker("worker.mjs?v=20261009time1", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261009gpu2", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -13,7 +14,8 @@ let meta,
   result,
   compareResults = [],
   zoomTimer,
-  centeredZoom = true;
+  centeredZoom = initialState?.centeredZoom??true;
+let restoreFit=initialState?.fit===true;
 const state = { start: 0, stop: 6250, chirp: 625, pulses: 8, rx: 0 };
 function status(text, error = false) {
   $("status").textContent = text;
@@ -62,6 +64,7 @@ function bands() {
       color: "#57d8c013",
       line: "#57d8c088",
     },
+    {start:num("scanStart"),stop:num("scanStop"),color:"#a855f710",line:"#7e22ce"},
     {
       start: state.chirp,
       stop: state.chirp + state.pulses,
@@ -88,6 +91,25 @@ const iq = new LinePlot("iqPlot"),
   rangePlot = new LinePlot("rangePlot"),
   residualPlot = new LinePlot("residualPlot"),
   scan = new LinePlot("scanPlot", (k) => selectChirp(Math.round(k)));
+const scanPoints=new Map();
+const scanPlots=Object.fromEntries(['scanRange','scanVelocity','scanAcceleration','scanPhases','scanSnr'].map(id=>[id,new LinePlot(id)]));
+function updateScan(r) {
+  const [r0,v0,a0]=r.best;
+  let kinematics=[r0,v0,a0];
+  if(r.model==='geometry'){
+    const x=r.best[2]*r.midpoint-r.best[0],range=Math.hypot(x,r.best[1]);
+    kinematics=[range,r.best[2]*x/range,r.best[2]**2*r.best[1]**2/range**3];
+  }
+  scanPoints.set(r.start,{start:r.start,midpoint:r.midpoint,kinematics,beam:{phases:r.beam.phases,single:r.beam.single,peak:r.beam.peak}});
+  const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start),x=points.map(p=>Number(clock(p.start))+p.midpoint-meta.parameters.T_adc);
+  const cfg={x0:Number(clock(num('scanStart'))),x1:Number(clock(num('scanStop'))),xLabel:'Seconds since file start'};
+  const line=(name,color,y)=>({name,color,x,y});
+  const colors=['#0072b2','#d55e00','#009e73','#cc79a7','#111111'];
+  for(const [id,index,label] of [['scanRange',0,'r₀ (m)'],['scanVelocity',1,'v₀ (m/s)'],['scanAcceleration',2,'a₀ (10⁶ m/s²)']])scanPlots[id].set([line(label,colors[index],points.map(p=>p.kinematics[index]))],{...cfg,yLabel:label,decimals:2,yFormat:id==='scanAcceleration'?v=>(v/1e6).toFixed(2):undefined});
+  const pairs=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
+  scanPlots.scanPhases.set(pairs.map(([a,b],i)=>line(`RX${b} − RX${a}`,['#0072b2','#d55e00','#009e73','#cc79a7','#111111','#e69f00'][i],points.map(p=>{const d=p.beam.phases[b]-p.beam.phases[a];return Math.atan2(Math.sin(d),Math.cos(d))*180/Math.PI;}))),{...cfg,yLabel:'Phase difference (°)',y0:-180,y1:180});
+  scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>db(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>db(p.beam.peak)))],{...cfg,yLabel:'Matched / quiet (dB)'});
+}
 for (const map of maps)
   map.enableWindow({
     getRange: () => [num("bgStart"), num("bgStop")],
@@ -129,6 +151,14 @@ for (const map of maps)
       if (repeatSearch) run();
     },
   });
+for(const map of maps)map.enableWindow({
+  label:'Analyze interval',tone:'analysis-window',
+  getLabel:()=>`Analyze · ${num('scanStart')}–${num('scanStop')-1}`,
+  getRange:()=>[num('scanStart'),num('scanStop')],
+  enabled:()=>loaded&&!busy,limit:()=>meta.total_chirps,
+  preview:(start,stop)=>{$('scanStart').value=start;$('scanStop').value=stop;maps.forEach(m=>m.overlay({bands:bands()}));},
+  commit:()=>window.dispatchEvent(new Event('fmcw-view-state')),
+});
 for (const [index,map] of maps.entries()) map.enableZoom({
   enabled:()=>loaded && !busy,
   reset:false,
@@ -156,6 +186,7 @@ function common() {
   };
 }
 function drawView() {
+  saveState();
   if (!viewImages) return;
   const base = common();
   for (let i = 0; i < 3; i++) {
@@ -199,7 +230,8 @@ function view() {
 }
 function applyCenteredZoom(allowBusy = false) {
   if (!meta || (busy && !allowBusy)) return;
-  centeredZoom = true;
+  centeredZoom = initialState?.centeredZoom??true;
+let restoreFit=initialState?.fit===true;
   const minimum = Math.max(1, state.pulses);
   const factor = Math.pow(meta.total_chirps / minimum, num("zoom") / 100);
   const width = Math.max(minimum, Math.round(meta.total_chirps / factor));
@@ -239,8 +271,8 @@ function invalidate() {
   $("compareResults").innerHTML = "";
   $("matchSummary").textContent =
     hadResult
-      ? "Previous fit cleared because the window or filter settings changed. Click Search selected train to calculate the new fit."
-      : "No fit calculated for this train. Click Search selected train.";
+      ? "Fit cleared; search again."
+      : "Search selected train.";
 }
 function updateSelection() {
   for (const m of maps) m.overlay({ bands: bands() });
@@ -257,8 +289,6 @@ function selectChirp(k) {
   state.chirp = k;
   $("chirp").value = k;
   $("chirpSlider").value = k;
-  $("scanStart").value = k;
-  $("scanStop").value = end;
   updateSelection();
   if (centeredZoom && num("zoom") > 0) applyCenteredZoom();
 }
@@ -283,7 +313,7 @@ function applyTiming() {
   if (previous !== undefined && previous !== period) invalidate();
   worker.postMessage({ type: "period", period });
   $("timingNote").textContent =
-    `${(period * 1e6).toFixed(3)} µs assumed chirp period · ${(framePeriod * 1e3).toFixed(5)} ms configured frame interval. Only the recording start clock is stored (timezone unspecified); individual chirp clocks are reconstructed. Ramp tail and frame gaps are not measured in this file.`;
+    `${(period * 1e6).toFixed(3)} µs assumed chirp period · ${(framePeriod * 1e3).toFixed(5)} ms frame interval · reconstructed timing.`;
   drawView();
   updateSelection();
 }
@@ -381,9 +411,7 @@ function run(compare = false, timeScan = false) {
       (Math.floor(state.chirp / meta.chirps_per_frame) + 1) *
         meta.chirps_per_frame
     )
-      throw Error(
-        "Select an earlier chirp in this frame so all requested pulses fit.",
-      );
+      if(!timeScan)throw Error("Select an earlier chirp in this frame so all requested pulses fit.");
     const job = {
       type: "search",
       start: state.chirp,
@@ -394,19 +422,21 @@ function run(compare = false, timeScan = false) {
       noiseStop: num("noiseStop"),
       grid: g,
       algorithm: $("algorithm").value,
+      computeBackend: $("computeBackend").value,
       loss,
       compare,
       scan: timeScan,
       scanStart: num("scanStart"),
       scanStop: num("scanStop"),
-      scanStride: num("scanStride"),
+      scanStride: 1,
+      beamSteps: Number(document.getElementById("beamSteps")?.value??10),
     };
     if (timeScan) {
       assertRange(job.scanStart, job.scanStop, "time-scan chirp");
+      if(job.scanStop-job.scanStart<job.pulses)throw Error("Analyze interval must contain a complete coherent train.");
       if (!Number.isInteger(job.scanStride) || job.scanStride < 1)
         throw Error("Start stride must be a positive integer.");
-      if ((job.scanStop - job.scanStart) / job.scanStride > 512)
-        throw Error("Use at most 512 time starts per scan; increase stride.");
+
     }
     setBusy(true);
     compareResults = [];
@@ -433,14 +463,17 @@ function axis(lo, hi, n) {
 function showMatch(r) {
   window.dispatchEvent(new CustomEvent("fmcw-match", { detail: { meta, match: r } }));
   result = r;
+  if(r.scanPoint)updateScan(r);
   vx.resetZoom();vy.resetZoom();
   state.pulses = r.pulses;
   state.chirp = r.start;
   $("chirp").value = r.start;
   $("chirpSlider").value = r.start;
+  if(r.scanPoint)updateSelection();
   vx.root.style.display = "block";
   vy.root.style.display = "block";
   maps.forEach((m) => m.overlay({ bands: bands() }));
+  saveState();
   const g = r.grid,
     nv = r.radialSpec ? r.radialSpec[2] : r.cells ? Math.max(1,Math.min(48,Math.ceil(Math.sqrt(r.cube.length)))) : g.vN,
     nx = r.radialSpec ? r.radialSpec[0] : r.cells ? nv : g.xN,
@@ -479,15 +512,17 @@ function showMatch(r) {
     colorDecimals: 2,
     kind: 1,
     xLabel: r.radialSpec ? "Radial velocity v₀ (m/s; positive receding)" : "Along-track velocity v (m/s)",
+    xMath:r.radialSpec?String.raw`v_0\;(\mathrm{m\,s^{-1}})`:String.raw`v\;(\mathrm{m\,s^{-1}})`,
     xFormat: (x) => x.toFixed(0),
-    colorLabel: "Matched energy / quiet noise (dB)",
+    colorLabel: "Matched / quiet (dB)",
   };
   vx.set(a, nv, nx, {
     ...opts,
     y0: g.xMin,
     y1: g.xMax === g.xMin ? g.xMax + 0.01 : g.xMax,
     yLabel: r.radialSpec ? "Midpoint range r₀ (m)" : "Along-track offset x₀ (m)",
-    yFormat: (x) => r.radialSpec ? x.toPrecision(3) : x.toFixed(2),
+    yMath:r.radialSpec?String.raw`r_0\;(\mathrm{m})`:String.raw`x_0\;(\mathrm{m})`,
+    yFormat: (x) => x.toFixed(3),
     marker: {
       column: Math.round(
         ((markerPoint[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
@@ -501,8 +536,9 @@ function showMatch(r) {
     ...opts,
     y0: g.yMin,
     y1: g.yMax === g.yMin ? g.yMax + 0.01 : g.yMax,
-    yLabel: r.radialSpec ? "Radial acceleration a₀ (m/s²)" : "Perpendicular distance y₀ (m)",
-    yFormat: (x) => r.radialSpec ? x.toPrecision(3) : x.toFixed(2),
+    yLabel: r.radialSpec ? "a₀ (10⁶ m/s²)" : "y₀ (m)",
+    yMath:r.radialSpec?String.raw`a_0\;(10^6\,\mathrm{m\,s^{-2}})`:String.raw`y_0\;(\mathrm{m})`,
+    yFormat: (x) => r.radialSpec ? (x/1e6).toFixed(2) : x.toFixed(2),
     marker: {
       column: Math.round(
         ((markerPoint[2] - g.vMin) / (g.vMax - g.vMin || 1)) * (nv - 1),
@@ -516,8 +552,9 @@ function showMatch(r) {
   const overlap =
     r.start < num("bgStop") && r.start + r.pulses > num("bgStart");
   if(r.radialSpec) { $("xN").value=nx; $("yN").value=ny; $("vN").value=nv; }
+  const boundsHit=r.radialSpec&&[[r.best[0],g.xMin,g.xMax],[r.best[1],g.vMin,g.vMax],[r.best[2],g.yMin,g.yMax]].some(([v,lo,hi])=>hi>lo&&Math.min(Math.abs(v-lo),Math.abs(v-hi))<1e-5*(hi-lo));
   $("matchSummary").textContent =
-    `${r.pulses} pulses · chirps ${r.start}–${r.start + r.pulses - 1} · verified peak ${db(r.best[3]).toFixed(2)} dB · ${r.radialSpec ? `r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s² · FFT grid peak ${peak.toFixed(2)} dB` : `x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${noiseCount} noise-reference trains · ${(((r.pulses * meta.samples) / meta.parameters.fs) * 1e6).toFixed(2)} µs sampled / ${((r.pulses - 1) * r.period * 1e6 + (meta.samples / meta.parameters.fs) * 1e6).toFixed(2)} µs elapsed · ${r.seconds.toFixed(2)} s${r.radialSpec ? ` · grid ${nx} × ${nv} × ${ny} (r₀ × v₀ × a₀) · ${r.radialSpec[5]} correction FFTs · FFT ${r.radialSpec[3]} × ${r.radialSpec[4]}` : r.automatic ? ` · ${r.automatic[0]} automatic cells · FFT ${r.automatic[2]} × ${r.automatic[3]} · ${r.automatic[6]} shared FFT corrections · estimated cell phase loss ${r.loss}%` : " · direct grid"}${overlap ? " · selected train overlaps the mean-estimation interval" : ""}`;
+    `${r.searchReceivers??1} RX incoherent · ${r.pulses} chirps (${r.start}–${r.start+r.pulses-1}) · ${db(r.best[3]).toFixed(2)} dB · ${r.radialSpec?`r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s²`:`x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${r.backend??'CPU'} · ${r.seconds.toFixed(2)} s${r.fallbackReason?' · CPU fallback':''}${overlap?' · overlaps background':''}${boundsHit?' · fit reaches search bound':''}`;
   const xx = [],
     obs = [],
     model = [],
@@ -660,6 +697,7 @@ function comparison(results) {
   showMatch(best);
   $("pulses").value = best.pulses;
   maps.forEach((m) => m.overlay({ bands: bands() }));
+  saveState();
 }
 worker.onmessage = ({ data: m }) => {
   if (m.type === "loaded") {
@@ -673,13 +711,14 @@ worker.onmessage = ({ data: m }) => {
       mask = power.slice(2 * n),
       missing = [...mask].filter((x) => x === 0).length;
     $("padding").textContent =
-      `${missing} / ${n} chirps flagged for zero runs ≥8 samples or nonfinite values. These are displayed in grey and excluded from noise estimates and searches. Original source reports ${meta.zero_padded_samples.toLocaleString()} padded samples across all receivers.`;
+      `${missing} / ${n} invalid chirps excluded (grey).`;
     $("bgNote").textContent =
-      `Complex mean uses ${m.count} intact chirps from [${num("bgStart")}, ${num("bgStop")}). This same mean is removed from quiet and disturbed data.`;
+      `Mean: ${m.count} intact chirps in [${num("bgStart")}, ${num("bgStop")}).`;
     if (!busy) status("Complex background mean updated; plots refreshed.");
     applyTiming();
     view();
     updateSelection();
+    if(restoreFit){restoreFit=false;setTimeout(()=>run(),0);}
   } else if (m.type === "view") {
     if (m.start !== state.start || m.stop !== state.stop) return;
     viewImages = m.images;
@@ -692,6 +731,11 @@ worker.onmessage = ({ data: m }) => {
     status(
       `${m.phase}: ${m.pulses} pulses · ${(m.fraction * 100).toFixed(0)}%${m.windows ? " · " + m.windows + " time starts" : ""}`,
     );
+  } else if(m.type==='scan-start') {
+    scanPoints.clear();$('scanTimeline').hidden=false;
+    for(const plot of Object.values(scanPlots))plot.set([],{x0:Number(clock(m.start)),x1:Number(clock(m.stop)),xLabel:'Seconds since file start'});
+  } else if(m.type==='scan-progress') {
+    $('progress').value=m.fraction;status(`Analyzed train ${m.start} · ${(100*m.fraction).toFixed(1)}%`);
   } else if (m.type === "match") {
     showMatch(m.result);
   } else if (m.type === "complete") {
@@ -700,7 +744,7 @@ worker.onmessage = ({ data: m }) => {
     if (m.results.length > 1) comparison(m.results);
     $("progress").value = 1;
     status(
-      "Search complete. Peak values are referenced to the selected quiet background.",
+      "Search complete.",
     );
   } else if (m.type === "cancelled") {
     setBusy(false);
@@ -801,6 +845,7 @@ for (const id of [
   "noiseStop",
   "receiver",
   "phaseLoss",
+  "computeBackend",
 ])
   $(id).addEventListener("change", invalidate);
 const savedBounds={fft:[.001,3,0,1000000,-900,900],direct:[-.6,.6,.05,.3,200,500]};
@@ -813,16 +858,16 @@ function methodUI() {
  $("mapRTitle").textContent=radial?'v₀ × r₀ · maximum over a₀':'v × x₀ · maximum over y₀';$("mapATitle").textContent=radial?'v₀ × a₀ · maximum over r₀':'v × y₀ · maximum over x₀';
  $("compare").textContent=radial?'Compare 2 / 4 / 8 / 16':'Compare 1 / 2 / 4 / 8 / 16';
  $("pulses").options[0].disabled=radial;if(radial && num('pulses')===1) $("pulses").value=8;
- $("modelNote").textContent=radial?'Polynomial radial range: r(t) = r₀ + v₀ h + ½a₀h². t₀ is the sampled train midpoint; h = t − t₀. Positive v₀ is receding. a₀ is radial acceleration (m/s²); the carrier Doppler chirp rate is approximately −2f₀a₀/c Hz/s. These are independent search coordinates.':'Radar at (x₀, y₀), projectile at (v t, 0). x₀ is along-track offset at this train’s start; y₀ is perpendicular distance. R(t) = √((v t − x₀)² + y₀²).';
- $("gridNote").textContent=radial?'Enter r₀, v₀ and a₀ bounds. Acceleration spacing and shared velocity corrections follow a polynomial phase bound over the full coherent train. Range/velocity spacing comes from padded FFT bins. The grid scores approximate the phase-only quadratic matched filter; strongest candidates are verified directly. This model omits cubic and higher range terms. Optional HPFs apply to candidate verification; the FFT grid is phase-only.':'Enter x₀, y₀ and signed along-track velocity bounds and grid counts for the full retarded Eq. 25 reference search.';
- $("mapNote").textContent=radial?'MAX projections of the complete r₀ / v₀ / a₀ FFT grid, including both I/Q orientations. Gray cells have nonpositive range over the train. Crosses mark the FFT grid peak. Strong candidates are checked with the exact quadratic template for the reported fit. FFT-bin rounding and correction sharing make grid scores approximate. A bank peak alone does not identify a projectile.':'MAX projections over the full configured geometry grid and both I/Q orientations. Crosses mark the global best fit. Mirroring (x₀,v) gives the same monostatic range history. A bank peak alone does not identify a projectile.';
+ $("modelNote").textContent=radial?'r(t) = r₀ + v₀ h + ½a₀h²; h is seconds from train midpoint. Positive v₀ = receding.':'R(t) = √((v t − x₀)² + y₀²); x₀ along track, y₀ perpendicular.';
+ $("gridNote").textContent=radial?'Automatic grid; full bounds retained.':'Uniform grid over the specified bounds.';
+ $("mapNote").textContent='Four-RX incoherent matched energy. MAX projections; cross = grid peak.';
 }
 $("algorithm").onchange = () => {
  savedBounds[activeMethod]=['xMin','xMax','yMin','yMax','vMin','vMax'].map(num);activeMethod=$("algorithm").value;
  ['xMin','xMax','yMin','yMax','vMin','vMax'].forEach((id,i)=>$(id).value=savedBounds[activeMethod][i]);
  invalidate();methodUI();setBusy(false);
 };
-methodUI();
+restoreControls();methodUI();restoreControls();activeMethod=$("algorithm").value;
 try {
   setBusy(false);
   const response = await fetch("datasets/test63/metadata.json", {
@@ -843,9 +888,14 @@ try {
     1e3
   ).toFixed(5);
   $("fftNote").textContent =
-    `Complex Hann-window FFT: ${meta.samples} acquired samples, ${2 ** Math.ceil(Math.log2(meta.samples))} FFT points. Fourier resolution ${(meta.parameters.fs / meta.samples / 1000).toFixed(2)} kHz; zero-padded bin spacing ${(meta.parameters.fs / 2 ** Math.ceil(Math.log2(meta.samples)) / 1000).toFixed(2)} kHz. Both spectrum views share the original recording's peak reference; frequency includes range beat and Doppler.`;
+    `Complex Hann-window FFT: ${meta.samples} acquired samples, ${2 ** Math.ceil(Math.log2(meta.samples))} FFT points. Fourier resolution ${(meta.parameters.fs / meta.samples / 1000).toFixed(2)} kHz; zero-padded bin spacing ${(meta.parameters.fs / 2 ** Math.ceil(Math.log2(meta.samples)) / 1000).toFixed(2)} kHz. Frequency = range beat + Doppler.`;
+  restoreControls();
+  state.rx=num('rx');state.chirp=num('chirp');state.pulses=num('pulses');
+  state.start=num('viewStart');state.stop=num('viewStop')+1;
+  initializeState(()=>({centeredZoom,fit:!!result}));
   worker.postMessage({
     type: "init",
+    rx:state.rx,
     meta,
     bgStart: num("bgStart"),
     bgStop: num("bgStop"),
