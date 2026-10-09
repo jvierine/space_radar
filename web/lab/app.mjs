@@ -21,6 +21,7 @@ function status(text, error = false) {
   $("status").classList.toggle("error", error);
 }
 function setBusy(value) {
+  window.dispatchEvent(new CustomEvent("fmcw-busy", { detail: value }));
   busy = value;
   for (const el of document.querySelectorAll(
     ".settings input,.settings select,.settings button,#matchSettings input,#matchSettings select,#search,#compare,#scan",
@@ -212,6 +213,7 @@ function customView() {
     `Custom view · ${state.stop - state.start} chirps`;
 }
 function invalidate() {
+  window.dispatchEvent(new Event("fmcw-invalidated"));
   const hadResult = !!result;
   result = undefined;
   $("progress").value = 0;
@@ -410,6 +412,7 @@ function axis(lo, hi, n) {
   );
 }
 function showMatch(r) {
+  window.dispatchEvent(new CustomEvent("fmcw-match", { detail: { meta, match: r } }));
   result = r;
   state.pulses = r.pulses;
   state.chirp = r.start;
