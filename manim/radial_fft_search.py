@@ -162,17 +162,19 @@ class RadialFFTSearch(Slide):
         self.wait(1)
 
         self.start('Coherent integration',
-            'The inner product is s_b=sum_j conjugate(q_j)*z_bj over acquired samples. It is evaluated separately per RX and for both stored-I/Q orientations. The template can include the optional receiver response at direct verification.')
+            'Define the unit-amplitude template q_j=exp(i phi_model(t_j)), with phi_model=-4 pi R(t_j)/lambda for the carrier propagation model just derived. The later FMCW model replaces phi_model by the complete dechirped chirp phase. Sample time t_j runs over the acquired train. Measurement z_bj=A_b q_j+n_bj has receiver complex amplitude A_b and noise n_bj. The matched sum is s_b=sum_j conjugate(q_j)*z_bj. Optional calibrated receiver response can generalize the phase-only template later.')
         self.play(FadeIn(self.prose('To add the echo constructively: undo its predicted phase, then sum.',28).move_to(UP*2.35)))
         self.play(Write(self.eq(r's_b=\sum_j q_j^*z_{b,j}',46).move_to(UP*1.3)))
         terms=VGroup(
-            self.eq(r'q_j:\ \text{predicted complex signal at sample }j',30),
-            self.eq(r'z_{b,j}:\ \text{background-subtracted data from receiver }b',30),
-            self.eq(r'q_j^*:\ \text{complex conjugate; reverses the predicted phase}',30),
-            self.eq(r'\sum_j:\ \text{add all samples in the selected chirp train}',30),
+            self.eq(r'q_j\equiv q(t_j)=e^{i\phi_{\rm model}(t_j)},\qquad |q_j|=1',34),
+            self.eq(r'\phi_{\rm model}(t_j)=-\frac{4\pi R(t_j)}{\lambda}\quad\text{(carrier model)}',32),
+            self.eq(r'z_{b,j}=A_bq_j+n_{b,j}\quad\text{(background-subtracted measurement)}',29),
+            self.eq(r'q_j^*=e^{-i\phi_{\rm model}(t_j)}\quad\text{undoes the predicted phase}',30),
             self.eq(r's_b:\ \text{the resulting complex sum for receiver }b',30),
-        ).arrange(DOWN,buff=.38).move_to(DOWN*1.25)
-        self.play(FadeIn(terms));self.wait(1)
+        ).arrange(DOWN,buff=.3).move_to(DOWN*.95)
+        self.play(FadeIn(terms))
+        self.play(FadeIn(self.texrow(r'$t_j$: acquired sample time; $A_b$: complex echo amplitude; $n_{b,j}$: noise.',25).move_to(DOWN*3.15)))
+        self.wait(1)
 
         self.start('Unwind the echo waveform, then add it constructively',
             'Synthetic full FMCW beat phase: transmitted chirp phase evaluated at the delayed return minus local transmit phase, with delay 2R(t)/c and quadratic moving range. Each acquired sample is multiplied by conjugate of its full predicted phase. Animation continuously removes that phase; phase unwrapping alone would not change the voltage or align it. No data in idle gaps. Noise would remain random rather than flatten.')
