@@ -1,9 +1,9 @@
-import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes15';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261009zeroaxes15';
+import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261010loss2db17';
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261010loss2db17';
 import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010adaptive16";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261009zeroaxes15", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261010loss2db17", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -31,7 +31,8 @@ function setBusy(value) {
   $("cancel").disabled = !value;
   $("download").disabled=value||!analysisComplete;
   for (const id of ["xN", "yN", "vN"]) $(id).disabled = value || !loaded || $("algorithm").value === "fft";
-  $("phaseLoss").disabled = value || !loaded || $("algorithm").value !== "fft";
+  $("processingLossDb").disabled = value || !loaded || $("algorithm").value !== "fft";
+  $("receiver").disabled = value || !loaded || $("algorithm").value === "fft";
   for (const map of maps) map.drawWindow();
 }
 function assertRange(a, b, label = "chirp") {
@@ -106,7 +107,7 @@ function drawScanHistory() {
   const colors=['#0072b2','#d55e00','#009e73','#cc79a7','#111111'];
   for(const [id,index,label] of [['scanRange',0,'r₀ (m)'],['scanVelocity',1,'v₀ (m/s)'],['scanAcceleration',2,'a₀ (10⁶ m/s²)']])scanPlots[id].set([line(label,colors[index],points.map(p=>p.kinematics[index]))],{...cfg,yLabel:label,decimals:2,yFormat:id==='scanAcceleration'?v=>(v/1e6).toFixed(2):undefined});
   const pairs=[[0,1],[0,2],[0,3],[1,2],[1,3],[2,3]];
-  scanPlots.scanPhases.set(pairs.map(([a,b],i)=>line(`RX${b} − RX${a}`,['#0072b2','#d55e00','#009e73','#cc79a7','#111111','#e69f00'][i],points.map(p=>{const d=p.beam.phases[b]-p.beam.phases[a];return Math.atan2(Math.sin(d),Math.cos(d))*180/Math.PI;}))),{...cfg,yLabel:'Phase difference (°)',y0:-180,y1:180});
+  scanPlots.scanPhases.set(pairs.map(([a,b],i)=>line(`RX${b} − RX${a}`,['#0072b2','#d55e00','#009e73','#cc79a7','#111111','#e69f00'][i],points.map(p=>{const d=(p.beam.echoPhases??p.beam.phases)[b]-(p.beam.echoPhases??p.beam.phases)[a];return Math.atan2(Math.sin(d),Math.cos(d))*180/Math.PI;}))),{...cfg,yLabel:'Phase difference (°)',y0:-180,y1:180});
   scanPlots.scanSnr.set([...Array.from({length:4},(_,i)=>line(`RX${i}`,colors[i],points.map(p=>snrDb(p.beam.single[i])))),line('Four-RX beamformed',colors[4],points.map(p=>snrDb(p.beam.peak)))],{...cfg,mode:'scatter',y0:0,yLabel:'SNR (dB)'});
   const control=(id,fallback)=>Number(document.getElementById(id)?.value??fallback);
   const frequency=meta.parameters.f_start+meta.parameters.freq_slope*(meta.parameters.T_adc+(meta.samples-1)/(2*meta.parameters.fs));
@@ -116,8 +117,8 @@ function drawScanHistory() {
   for(const point of points)if(point.rcsKey!==key){
     point.rcsKey=key;
     point.rcs=valid&&point.beam.noiseCalibrated!==false?[...point.beam.single,point.beam.peak].map((score,i)=>{
-      const sigma=estimateRcs(score,{...settings,range:point.kinematics[0],T_coh:point.beam.T_coh??point.beam.effectiveTime},i===4?4:1);
-      return {sigma,diameters:diameterRoots(sigma,frequency,minimum,maximum).map(d=>1000*d)};
+      const sigma=estimateRcs(score,{...settings,range:point.kinematics[0],T_coh:point.beam.T_coh??point.beam.effectiveTime},i===4?(point.beam.rcsGain??4):1);
+      const diameters=diameterRoots(sigma,frequency,minimum,maximum).map(d=>1000*d);return {sigma,diameters,diameterEnvelope:diameters.length?[Math.min(...diameters),Math.max(...diameters)]:[NaN,NaN]};
     }):Array.from({length:5},()=>({sigma:NaN,diameters:[]}));
   }
   scanPlots.scanRcs.set(Array.from({length:5},(_,i)=>line(i===4?'Four-RX beamformed':`RX${i}`,colors[i],points.map(p=>p.rcs[i].sigma>0?10*Math.log10(p.rcs[i].sigma):NaN))),{...cfg,yLabel:'Estimated RCS (dBsm)',decimals:1});
@@ -377,9 +378,11 @@ function run(compare = false, timeScan = false) {
     applyTiming();
     assertRange(num("bgStart"), num("bgStop"), "quiet-mean chirp");
     const g = grid();
-    const loss = num("phaseLoss");
-    if ($("algorithm").value === "fft" && (!Number.isFinite(loss) || loss <= 0 || loss > 50))
-      throw Error("Choose a correction-phase loss greater than 0% and at most 50%.");
+    const lossDb = num("processingLossDb");
+    const loss = 100 * (1 - 10 ** (-lossDb / 10));
+    $("phaseLoss").value=String(loss);
+    if ($("algorithm").value === "fft" && (!Number.isFinite(lossDb) || lossDb <= 0 || lossDb > 3))
+      throw Error("Choose a maximum coherent processing loss greater than 0 and at most 3 dB.");
     assertRange(num("noiseStart"), num("noiseStop"), "noise-reference chirp");
     const needed = compare ? 16 : num("pulses");
     if (
@@ -530,9 +533,18 @@ function showMatch(r) {
   const overlap =
     r.start < num("bgStop") && r.start + r.pulses > num("bgStart");
   if(r.radialSpec) { $("xN").value=nx; $("yN").value=ny; $("vN").value=nv; }
+  let aliases=document.getElementById('aliasCandidates');
+  if(!aliases){aliases=document.createElement('details');aliases.id='aliasCandidates';$("matchSummary").after(aliases);}
+  aliases.hidden=!r.aliasCandidates?.length;
+  if(r.aliasCandidates?.length){
+    const branches=new Map(),p=meta.parameters,c=299792458,fc=p.f_start+p.freq_slope*(p.T_adc+(meta.samples-1)/(2*p.fs));
+    for(let j=0;j<r.aliasCandidates.length;j+=5){const a=Array.from(r.aliasCandidates.slice(j,j+5)),slow=(-2*fc/c+4*p.freq_slope*a[0]/c**2)*a[1],fast=slow-2*p.freq_slope*a[0]/c,key=[Math.round(fast/p.fs),Math.round(slow*r.period)].join(',');if(!branches.has(key)||a[3]>branches.get(key)[3])branches.set(key,a);}
+    const candidates=[...branches.values()].sort((a,b)=>b[3]-a[3]);
+    aliases.innerHTML=`<summary>Sampling-alias branches checked: ${candidates.length}</summary><p>Best direct waveform check per retained alias branch; these are grid candidates, not confidence intervals or proof of a unique solution. An echo outside the chosen bounds can alias into this search.</p><table><thead><tr><th>Range (m)</th><th>Radial velocity (m/s)</th><th>Acceleration (m/s²)</th><th>GLS matched score</th></tr></thead><tbody>${candidates.map(a=>`<tr><td>${a[0].toFixed(4)}</td><td>${a[1].toFixed(2)}</td><td>${a[2].toPrecision(5)}</td><td>${a[3].toFixed(2)}</td></tr>`).join('')}</tbody></table>`;
+  }
   const boundsHit=r.radialSpec&&[[r.best[0],g.xMin,g.xMax],[r.best[1],g.vMin,g.vMax],[r.best[2],g.yMin,g.yMax]].some(([v,lo,hi])=>hi>lo&&Math.min(Math.abs(v-lo),Math.abs(v-hi))<1e-5*(hi-lo));
   $("matchSummary").textContent =
-    `${r.searchReceivers??1} RX incoherent · ${r.pulses} chirps (${r.start}–${r.start+r.pulses-1}) · ${snrDb(r.best[3]).toFixed(2)} dB · ${r.radialSpec?`r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s²`:`x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${r.backend??'CPU'} · ${r.seconds.toFixed(2)} s${r.fallbackReason?' · CPU fallback':''}${overlap?' · overlaps background':''}${boundsHit?' · fit reaches search bound':''}`;
+    `${r.radialSpec?"Joint noise-weighted RX fit":`${r.searchReceivers??1} RX incoherent`} · ${r.pulses} chirps (${r.start}–${r.start+r.pulses-1}) · ${snrDb(r.best[3]).toFixed(2)} dB · ${r.radialSpec?`r₀ ${x.toFixed(4)} m, v₀ ${y.toFixed(2)} m/s, a₀ ${v.toPrecision(5)} m/s²`:`x₀ ${x.toFixed(4)} m, y₀ ${y.toFixed(4)} m, v ${v.toFixed(2)} m/s`} · ${r.backend??'CPU'} · ${r.seconds.toFixed(2)} s${r.fallbackReason?' · CPU fallback':''}${overlap?' · overlaps background':''}${boundsHit?' · fit reaches search bound':''}`;
   const xx = [],
     obs = [],
     model = [],
@@ -769,7 +781,7 @@ for (const id of [
   "vMax",
   "vN",
   "receiver",
-  "phaseLoss",
+  "processingLossDb",
   "computeBackend",
 ])
   $(id).addEventListener("change", invalidate);
@@ -777,6 +789,7 @@ const savedBounds={fft:[.001,3,0,1000000,0,900],direct:[-.6,.6,.05,.3,200,500]};
 let activeMethod='fft';
 function methodUI() {
  const radial=$("algorithm").value==='fft';
+ if(radial) $("receiver").checked=false;
  ['xN','yN','vN'].forEach((id,i)=>$(id).value=radial?'':[31,11,41][i]);
  $("axisR").textContent=radial?'r₀ (m)':'x₀ (m)';$("axisA").textContent=radial?'a₀ (m/s²)':'y₀ (m)';$("axisV").textContent=radial?'v₀ (m/s)':'v (m/s)';
  $("yMin").min=radial?'':'.001';$("yMax").min=radial?'':'.001';$("yMin").step=$("yMax").step=radial?'1000':'.01';
@@ -831,7 +844,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261009zeroaxes15',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261010loss2db17',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};

@@ -217,6 +217,7 @@ struct Engine {
     events: Vec<Vec<Z>>,
     noise: Vec<Vec<Z>>,
     noise_power: Vec<f64>,
+    noise_precision: Vec<Z>,
     pulses: usize,
     start: usize,
     receiver: bool,
@@ -246,12 +247,33 @@ impl Engine {
         }
     }
     fn quiet_power(&self, q: &[Z], conj: bool) -> f64 {
-        if !self.noise_power.is_empty() {return self.noise_power.iter().sum::<f64>() * q.iter().map(|z|z.power()).sum::<f64>();}
+        if !self.noise_power.is_empty() {
+            return self.noise_power.iter().sum::<f64>() * q.iter().map(|z| z.power()).sum::<f64>();
+        }
         self.noise
             .iter()
             .map(|z| inner(q, z, conj).power())
             .sum::<f64>()
             / (self.noise.len() / self.channels()) as f64
+    }
+
+    // Profiled multichannel weighted least squares: A_b = <q,z_b>/||q||^2.
+    // Minimizing residual^H C^-1 residual equals maximizing s^H C^-1 s / ||q||^2.
+    fn joint_score(&self, q: &[Z], conj: bool) -> f64 {
+        if self.noise_precision.len() != self.channels() * self.channels() || self.events.is_empty()
+        {
+            return self.event_power(q, conj) / self.quiet_power(q, conj);
+        }
+        let sums: Vec<Z> = self.events.iter().map(|z| inner(q, z, conj)).collect();
+        let n = sums.len();
+        let mut score = 0.;
+        for i in 0..n {
+            for j in 0..n {
+                let z = self.noise_precision[i * n + j].mul(sums[j]);
+                score += sums[i].r * z.r + sums[i].i * z.i;
+            }
+        }
+        score / q.iter().map(|z| z.power()).sum::<f64>()
     }
 
     fn residual(&self, k: usize) -> Vec<Z> {
@@ -429,6 +451,7 @@ pub unsafe extern "C" fn load(
             events: vec![],
             noise: vec![],
             noise_power: vec![],
+            noise_precision: vec![],
             pulses: 1,
             start: 0,
             receiver: false,
@@ -585,13 +608,12 @@ pub extern "C" fn prepare(
         a.receiver = receiver != 0;
         a.events.clear();
         a.noise_power.clear();
+        a.noise_precision.clear();
         a.event = a.train(start, pulses);
         let mut candidates = vec![];
         let mut k = noise_start;
         while k + pulses <= noise_stop {
-            if a.valid_train(k, pulses)
-                && (k + pulses <= start || k >= start + pulses)
-            {
+            if a.valid_train(k, pulses) && (k + pulses <= start || k >= start + pulses) {
                 candidates.push(k);
                 k += 1;
             } else {
@@ -1196,22 +1218,95 @@ pub extern "C" fn radial_template(r: f64, v: f64, g: f64, pulses: usize, receive
 
 // Full-bandwidth raw complex noise power; no matched background trains required.
 #[no_mangle]
-pub extern "C" fn prepare_power(start:usize,pulses:usize,noise_start:usize,noise_stop:usize,receiver:usize)->isize {
- ENGINE.with(|e|{let mut e=e.borrow_mut();let a=e.as_mut().unwrap();
- if !a.valid_train(start,pulses){return -1;}
- if noise_start>=noise_stop||noise_stop>a.rows||!a.valid[noise_start..noise_stop].iter().any(|v|*v){return -2;}
- a.start=start;a.pulses=pulses;a.receiver=receiver!=0;a.noise_bounds=(noise_start,noise_stop);
- a.events.clear();a.noise.clear();a.noise_power.clear();a.event=a.train(start,pulses);1
- })
+pub extern "C" fn prepare_power(
+    start: usize,
+    pulses: usize,
+    noise_start: usize,
+    noise_stop: usize,
+    receiver: usize,
+) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        if !a.valid_train(start, pulses) {
+            return -1;
+        }
+        if noise_start >= noise_stop
+            || noise_stop > a.rows
+            || !a.valid[noise_start..noise_stop].iter().any(|v| *v)
+        {
+            return -2;
+        }
+        a.start = start;
+        a.pulses = pulses;
+        a.receiver = receiver != 0;
+        a.noise_bounds = (noise_start, noise_stop);
+        a.events.clear();
+        a.noise.clear();
+        a.noise_power.clear();
+        a.noise_precision.clear();
+        a.event = a.train(start, pulses);
+        1
+    })
 }
 #[no_mangle]
-pub unsafe extern "C" fn search_noise_power(ptr:*const f32,len:usize)->isize {
- ENGINE.with(|e|{let mut e=e.borrow_mut();let a=e.as_mut().unwrap();
- let p=std::slice::from_raw_parts(ptr,len);if len!=a.channels()||p.iter().any(|v|!v.is_finite()||*v<=0.){return -1;}
- a.noise_power=p.iter().map(|v|*v as f64).collect();a.noise.clear();len as isize
- })
+pub unsafe extern "C" fn search_noise_power(ptr: *const f32, len: usize) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let p = std::slice::from_raw_parts(ptr, len);
+        if len != a.channels() || p.iter().any(|v| !v.is_finite() || *v <= 0.) {
+            return -1;
+        }
+        a.noise_power = p.iter().map(|v| *v as f64).collect();
+        a.noise.clear();
+        len as isize
+    })
 }
 #[no_mangle]
-pub extern "C" fn radial_noise_power()->f64 {
- ENGINE.with(|e|{let e=e.borrow();let a=e.as_ref().unwrap();a.noise_power.iter().sum::<f64>()*(a.n*a.pulses) as f64})
+pub extern "C" fn radial_noise_power() -> f64 {
+    ENGINE.with(|e| {
+        let e = e.borrow();
+        let a = e.as_ref().unwrap();
+        a.noise_power.iter().sum::<f64>() * (a.n * a.pulses) as f64
+    })
+}
+
+// Inverse receive-noise covariance, computed once by Hermitian Cholesky in JS.
+#[no_mangle]
+pub unsafe extern "C" fn search_noise_precision(ptr: *const f32, len: usize) -> isize {
+    ENGINE.with(|e| {
+        let mut e = e.borrow_mut();
+        let a = e.as_mut().unwrap();
+        let p = std::slice::from_raw_parts(ptr, len);
+        let n = a.channels();
+        if len != 2 * n * n || p.iter().any(|v| !v.is_finite()) {
+            return -1;
+        }
+        if (0..n).any(|i| p[2 * (i * n + i)] <= 0.) {
+            return -2;
+        }
+        a.noise_precision = p
+            .chunks_exact(2)
+            .map(|v| Z {
+                r: v[0] as f64,
+                i: v[1] as f64,
+            })
+            .collect();
+        len as isize
+    })
+}
+
+#[no_mangle]
+pub extern "C" fn radial_candidates() -> usize {
+    ENGINE.with(|e| {
+        let mut b = e.borrow_mut();
+        let a = b.as_mut().unwrap();
+        a.out = a
+            .radial
+            .as_ref()
+            .map(|r| r.candidates.clone())
+            .unwrap_or_default();
+        a.out.len()
+    })
 }

@@ -1,5 +1,5 @@
-import {snrDb} from './rcs.mjs?v=20261009zeroaxes15';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009zeroaxes15';
+import {snrDb} from './rcs.mjs?v=20261010loss2db17';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261010loss2db17';
 export {commonValid};
 // Phase-only coherent receive beamforming, conditional on a trajectory template.
 // Positive phase rotates the stored receiver voltage by exp(+i phase)/2.
@@ -144,5 +144,5 @@ export function projectReceivers(receivers, q, {samples, rows, perFrame, start, 
     return out;
   };
   const energy=q.reduce((sum,v)=>sum+v*v,0);
-  return {noiseCalibrated,noiseMethod,noiseSamplesPerRx,rawNoisePower:noiseCovariance?Float64Array.from({length:4},(_,a)=>noiseCovariance[2*(4*a+a)]):undefined,noiseSamples,event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
+  return {templateEnergy:energy,noiseCalibrated,noiseMethod,noiseSamplesPerRx,rawNoisePower:noiseCovariance?Float64Array.from({length:4},(_,a)=>noiseCovariance[2*(4*a+a)]):undefined,noiseSamples,event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
 }

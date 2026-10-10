@@ -1,3 +1,38 @@
+# Joint motion and receiver-amplitude fit
+
+The default radial FFT search first uses incoherently added receiver powers to
+locate candidate trajectories. The final bounded Nelder–Mead fit minimizes
+`sum_j (z_j-q_j A)^H C^-1 (z_j-q_j A)`, where `z_j` contains four complex RX
+samples, `q_j` is the complete quadratic-range FMCW echo, and `C` is the
+quiet raw residual receive covariance. Temporal noise is assumed white.
+The four complex amplitudes are solved analytically as `A=s/Q`, with
+`s=sum_j conj(q_j) z_j` and `Q=sum_j |q_j|^2`. Thus the optimizer maximizes
+`s^H C^-1 s/Q`. The same fit supplies complex beam weights proportional to
+`C^-1 A`; there is no separate phase-only grid or phase simplex in this path.
+
+The covariance inverse uses Cholesky factorization after normalizing the RX
+variances. A small diagonal correlation ridge is used only if needed for
+positive definiteness, and is reported/exported. Beam noise is propagated
+through the actual complex weights, including cross-RX correlations.
+
+Fitting four complex amplitudes also fits noise. The GLS quadratic score has
+noise contribution `tr(C_reg^-1 C)`, normally four. Subtract this contribution
+before converting fitted signal SNR to received power. Further trajectory
+search selection bias remains. Displayed dB values have the requested 0 dB
+floor; physical estimates use unfloored linear signal power.
+
+RCS combining gain uses the implemented weights and measured receive
+covariance, assuming equal calibrated antenna responses in each RX's noise
+units. It equals four for equal independent RXs, but is not assumed universally
+four. Fitted receiver phases include electronic offsets and are not calibrated
+arrival angles. HDF5 stores complex amplitudes, weights, covariance, GLS score,
+noise bias and calibration gain.
+
+## Reference implementation retained below
+
+The old phase-only routines in `beamforming.mjs` remain as tested reference
+utilities, not the active default radial processing path.
+
 # Four-receiver phase search
 
 Fit a trajectory, then use **Search 1,000 phase combinations** below the fit.

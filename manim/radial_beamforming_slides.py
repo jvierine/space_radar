@@ -44,11 +44,11 @@ def beamforming_slides(s):
     s.play(FadeIn(s.eq(r'\theta',26).move_to([.35,.45,0])),FadeIn(s.prose('Incoming wave',23,ORANGE).move_to([3,2.3,0])))
     s.play(*[Transform(front,wavefront(y-.6/np.cos(theta))) for front,y in zip(fronts,offsets)],run_time=1.8,rate_func=linear)
     s.play(Write(s.eq(r'\Delta\ell=d\sin\theta,\qquad\Delta\phi=\frac{2\pi d}{\lambda}\sin\theta',37).move_to(DOWN*1.65)))
-    definitions=VGroup(s.prose('theta: arrival angle from the array normal (broadside).',25),s.prose('d: spacing. Delta ell: extra receive path. Delta phi: phase difference.',23),s.prose('Half-wavelength spacing: 30 degrees arrival → 90 degrees between RXs.',25,BLUE)).arrange(DOWN,buff=.25).move_to(DOWN*2.85)
+    definitions=VGroup(s.texrow(r'$\theta$: arrival angle from the array normal (broadside).',25),s.texrow(r'$d$: spacing; $\Delta\ell$: extra receive path; $\Delta\phi$: phase difference.',23),s.texrow(r'With $d=\lambda/2$: $\theta=30^\circ$ gives $\Delta\phi=90^\circ$ between RXs.',25).set_color(BLUE)).arrange(DOWN,buff=.25).move_to(DOWN*2.85)
     s.play(FadeIn(definitions));s.wait(1)
 
     s.start('Rotate the matched outputs, then add complex amplitudes',
-        'At one common best trajectory sb=sum q* zb. Preserve complex numbers; powers alone cannot beamform. Synthetic equal outputs phases 0,90,180,270 degrees; rotate alpha=-phase relative to RX0. These circles show four matched-filter outputs, not chirps. B=(1/2) sum exp(i alpha_b) sb has unit-norm weights. Linearity allows beamforming before or after the same temporal matched filter. The displayed analytic alignment maximizes power for equal independent noise; actual GUI maximizes noise-normalized score.')
+        'At one common best trajectory sb=sum q* zb. Preserve complex numbers; powers alone cannot beamform. Synthetic equal outputs phases 0,90,180,270 degrees; rotate alpha=-phase relative to RX0. These circles show four matched-filter outputs, not chirps. s_{\rm BF}=(1/2) sum exp(i alpha_b) sb has unit-norm weights. Linearity allows beamforming before or after the same temporal matched filter. The displayed analytic alignment maximizes power for equal independent noise; This equal-noise illustration is the special case of the joint noise-weighted fit shown next.')
     centres=[np.array([x,.85,0]) for x in [-4.5,-1.5,1.5,4.5]]
     circles=VGroup(*[Circle(radius=.75,color=MUTED).move_to(c) for c in centres])
     arrows=VGroup(*[Arrow(c,c+.68*np.array([np.cos(b*PI/2),np.sin(b*PI/2),0]),buff=0,color=COLORS[b]) for b,c in enumerate(centres)])
@@ -59,16 +59,33 @@ def beamforming_slides(s):
     s.play(FadeIn(caption));s.wait(.5)
     s.play(*[Rotate(a,angle=-b*PI/2,about_point=c) for b,(a,c) in enumerate(zip(arrows,centres))],run_time=2)
     s.play(Transform(caption,s.prose('After rotation: all four echo amplitudes add constructively.',27,BLUE).move_to(DOWN*.5)))
-    s.play(Write(s.eq(r'B=\frac12\sum_{b=0}^3e^{i\alpha_b}s_b,\qquad\alpha_b=-\arg(s_b)+\arg(s_0)',38).move_to(DOWN*1.55)))
-    terms=VGroup(s.prose('s(b): complex matched output. alpha(b): applied phase rotation.',24),s.prose('B: beamformed output. One-half gives unit-norm four-channel weights.',24),s.prose('Equal aligned channels with independent noise give four times the single-RX SNR.',24,BLUE)).arrange(DOWN,buff=.23).move_to(DOWN*2.9)
+    s.play(Write(s.eq(r's_{\rm BF}=\frac12\sum_{b=0}^3e^{i\alpha_b}s_b,\qquad\alpha_b=-\arg(s_b)+\arg(s_0)',38).move_to(DOWN*1.55)))
+    terms=VGroup(s.texrow(r'$s_b$: complex matched output; $\alpha_b$: applied phase rotation.',24),s.texrow(r'$s_{\mathrm{BF}}$: beamformed output; $1/2$ gives unit-norm four-channel weights.',24),s.prose('Equal aligned channels with independent noise give four times the single-RX SNR.',24,BLUE)).arrange(DOWN,buff=.23).move_to(DOWN*2.9)
     s.play(FadeIn(terms));s.wait(1)
 
-    s.start('Search the receiver phases and propagate the background noise',
-        'Implementation fixes RX0=0, coarse three-phase grid then Nelder-Mead refinement of observed beam power over predicted noise. C_ab=E[n_a conjugate(n_b)] is matched-output noise covariance, quiet sample covariance times template energy. c_b=exp(i alpha_b)/2; beam noise=sum c_a conjugate(c_b) C_ab. Equal independent noise: noise unchanged, signal power fourfold. Unequal channels and correlated noise change gain. General covariance-optimal amplitude weights are not implemented. Fitted phases are not calibrated arrival angles.')
-    s.content([r'P_{n,\mathrm{beam}}=\sum_{a,b}c_a c_b^*C_{ab},\qquad c_b=\tfrac12e^{i\alpha_b}',r'\rho_{\mathrm{beam}}=\frac{|B|^2}{P_{n,\mathrm{beam}}}',r'\text{equal independent RXs:}\quad G_{\mathrm{SNR}}=4\approx6.02\ \mathrm{dB}'],[
-        'C: matched-output noise covariance, estimated from quiet background.',
-        'Fix RX0 at zero; search three relative phases, then refine the best combination.',
-        'Carry each channel noise and cross-channel correlations through the same weights.',
-        'Receiver phases include geometry and electronic offsets.',
-        'Unequal channels can benefit from amplitude weighting; this GUI fits phases only.',
+    s.start('One joint fit refines motion and the complex receiver amplitudes',
+        'Joint generalized least squares. Sample vector z_j has four complex receivers, z_j=q_j(theta) A+n_j. C is per-sample receive covariance estimated in the quiet residual; temporally white acquired noise assumed. Minimize sum (z_j-q_j A)^H C^-1 (z_j-q_j A). For common q and fixed C, derivative yields A=s/Q, s=sum q* z and Q=sum|q|^2. The profiled objective equals constant minus s^H C^-1 s/Q. Bounded Nelder-Mead adjusts theta; amplitudes are solved exactly each trial. This includes motion refinement and receiver phase/amplitude fitting in the same objective, no subsequent phase-only simplex. Search peaks retain selection bias.')
+    model=MathTex(r'\mathbf z_j=',r'q_j(r_0,v_0,a_0)',r'\mathbf A',r'+\mathbf n_j',font_size=44,color='#202830').move_to(UP*1.8)
+    s.play(Write(model))
+    s.callout(model[1],'Predicted echo, including motion',[-2.8,2.85,0],ORANGE)
+    s.callout(model[2],'Four complex RX amplitudes',[3.7,2.85,0],BLUE)
+    objective=s.eq(r'J(\theta,\mathbf A)=\sum_j(\mathbf z_j-q_j\mathbf A)^H C^{-1}(\mathbf z_j-q_j\mathbf A)',38).move_to(UP*.2)
+    s.play(Write(objective))
+    s.play(Write(s.eq(r'\mathbf s=\sum_jq_j^*\mathbf z_j,\quad Q=\sum_j|q_j|^2,\quad\widehat{\mathbf A}=\mathbf s/Q',37).move_to(DOWN*.9)))
+    rows=VGroup(s.texrow(r'$C$: background receive-noise covariance; $H$: conjugate transpose.',25),
+        s.prose('At each trial: solve amplitudes, weight residuals, evaluate least squares.',26),
+        s.prose('Nelder–Mead adjusts range, radial velocity and radial acceleration together.',25,PURPLE),
+        s.prose('Those same fitted amplitudes supply the beam phases and amplitude weights.',25,BLUE)).arrange(DOWN,buff=.25).move_to(DOWN*2.55)
+    s.play(FadeIn(rows));s.wait(1)
+
+    s.start('The same fit supplies the noise-weighted coherent beam',
+        'Optimal linear combining for a known or fitted amplitude vector A under receive covariance C: w proportional C^-1 A, beam s_{\rm BF}=w^H s, matched noise Q w^H C w. Unit Euclidean normalization is arbitrary for SNR. Estimated weights use same event amplitudes; score s^H (Q C)^-1 s has noise-only expectation tr(Creg^-1 C), equal number of fitted complex RX amplitudes without regularization (four). Remove this amplitude-fitting noise bias when estimating excess signal SNR. Further trajectory search selection bias remains. RCS gain propagates actual weights and covariance assuming equal calibrated physical antenna responses; not universally four. Fitted phases are not calibrated arrival angles.')
+    s.content([r'\mathbf w\propto C^{-1}\widehat{\mathbf A},\qquad s_{\rm BF}=\mathbf w^H\mathbf s',
+        r'P_{n,\rm BF}=Q\mathbf w^H C\mathbf w,\qquad\rho_{\rm GLS}=\frac{\mathbf s^H C^{-1}\mathbf s}{Q}',
+        r'\widehat S=\max(\rho_{\rm GLS}-\nu,0),\qquad\nu=\mathrm{tr}(C_{\rm reg}^{-1}C)\simeq4'],[
+        r'$\mathbf w$: complex combining weights; $s_{\mathrm{BF}}$: beam voltage; $Q$: template energy.',
+        'Inverse covariance downweights noisy channels and accounts for noise correlations.',
+        r'$\nu$: noise contribution from fitting four complex receiver amplitudes.',
+        'Independent equal-noise, equal-signal RXs give the familiar fourfold SNR gain.',
+        'Search selection can still bias weak peaks; fitted phases include electronic offsets.',
     ])

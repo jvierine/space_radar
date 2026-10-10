@@ -8,7 +8,7 @@ export function decodeState(url) {
 export function encodeState(url,state) {
   const u=new URL(url);u.searchParams.set('gui',JSON.stringify({version:1,...state}));return u.href;
 }
-export const defaultState={"version":1,"controls":{"rx":"0","component":"0","rawScale":"2500","subScale":"100","span":"70","fftSub":"1","chirp":"3821","chirpSlider":"3821","traceSub":true,"algorithm":"fft","phaseLoss":"5","pulses":"8","computeBackend":"auto","receiver":false,"xMin":"0.001","xMax":"3","xN":"329","yMin":"0","yMax":"1000000","yN":"37","vMin":"0","vMax":"600","vN":"509","beamSteps":"10","rcsTemperature":"9000","rcsPower":"12","rcsTxGain":"6","rcsRxGain":"6","rcsLoss":"0","rcsRange":"1.188403","rcsDMin":"0.01","rcsDMax":"20"},"plots":{"fftPlot":{"x0":3369,"x1":3957,"y0":-6.25,"y1":6.127984183175224}},"view":{"start":3369,"stop":3957},"background":{"start":3633,"stop":3692},"analysis":{"start":3704,"stop":3880},"timing":{"period":2.5370000000000003e-05,"framePeriod":0.00317125},"fit":true};
+export const defaultState={"version":1,"controls":{"rx":"0","component":"0","rawScale":"2500","subScale":"100","span":"70","fftSub":"1","chirp":"3821","chirpSlider":"3821","traceSub":true,"algorithm":"fft","phaseLoss":"36.90426555198067","processingLossDb":"2","pulses":"8","computeBackend":"auto","receiver":false,"xMin":"0.001","xMax":"3","xN":"329","yMin":"0","yMax":"1000000","yN":"37","vMin":"0","vMax":"600","vN":"509","beamSteps":"10","rcsTemperature":"9000","rcsPower":"12","rcsTxGain":"6","rcsRxGain":"6","rcsLoss":"0","rcsRange":"1.188403","rcsDMin":"0.01","rcsDMax":"20"},"plots":{"fftPlot":{"x0":3369,"x1":3957,"y0":-6.25,"y1":6.127984183175224}},"view":{"start":3369,"stop":3957},"background":{"start":3633,"stop":3692},"analysis":{"start":3704,"stop":3880},"timing":{"period":2.5370000000000003e-05,"framePeriod":0.00317125},"fit":true};
 export const initialState=typeof location==='undefined'?null:(decodeState(location.href)??structuredClone(defaultState));
 export function restoreControls(root=document) {
   for(const el of root.querySelectorAll('input[id],select[id]')) {
@@ -16,6 +16,11 @@ export function restoreControls(root=document) {
     if(el.type==='checkbox'){if(typeof v==='boolean')el.checked=v;continue;}
     if(el.tagName==='SELECT'){if([...el.options].some(o=>o.value===String(v)))el.value=String(v);continue;}
     if(typeof v==='string'&&v.length<100 && (el.type!=='number'&&el.type!=='range'||v!==''&&Number.isFinite(Number(v))))el.value=v;
+  }
+  const db=[...root.querySelectorAll("input[id],select[id]")].find(el=>el.id==="processingLossDb"), legacy=[...root.querySelectorAll("input[id],select[id]")].find(el=>el.id==="phaseLoss");
+  if(db && legacy){
+    if(initialState?.controls?.processingLossDb===undefined && initialState?.controls?.phaseLoss!==undefined) db.value=String(-10*Math.log10(1-Number(legacy.value)/100));
+    legacy.value=String(100*(1-10**(-Number(db.value)/10)));
   }
 }
 let ready=false,getExtra=()=>({}),timer;

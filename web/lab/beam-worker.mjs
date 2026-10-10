@@ -1,4 +1,5 @@
-import {phaseSearch, projectReceivers} from './beamforming.mjs?v=20261009zeroaxes15';
+import {jointBeam} from './joint-beam.mjs';
+import {projectReceivers} from './beamforming.mjs?v=20261010loss2db17';
 const cache=new Map();
 async function channel(spec){
  if(cache.has(spec.sha256))return cache.get(spec.sha256);
@@ -14,10 +15,10 @@ let engine;
 onmessage=async({data:job})=>{
  try{
   const {meta,match}=job;
-  if(meta.transport.length!==4)throw Error('This phase search requires four synchronized receivers.');
+  if(meta.transport.length!==4)throw Error('This joint fit requires four synchronized receivers.');
   postMessage({id:job.id,type:'progress',text:'Loading and verifying four synchronized receiver streams…'});
   const receivers=await Promise.all(meta.transport.map(channel));
-  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261009zeroaxes15'),{})).instance.exports;
+  engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261010loss2db17'),{})).instance.exports;
   const p=meta.parameters;
   const ptr=engine.allocate(2*meta.samples);
   new Float32Array(engine.memory.buffer,ptr,2*meta.samples).fill(0);
@@ -26,7 +27,7 @@ onmessage=async({data:job})=>{
   (match.model==='radial-quadratic' ? engine.radial_template : engine.template_values)(match.best[0],match.best[1],match.best[2],match.pulses,+match.receiver);
   const q=new Float32Array(engine.memory.buffer,engine.result_ptr(),engine.result_len()).slice();
   const projections=projectReceivers(receivers,q,{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start:match.start,pulses:match.pulses,bgStart:match.bgRange[0],bgStop:match.bgRange[1],noiseStart:match.noiseRange[0],noiseStop:match.noiseRange[1],conjugated:match.best[4]>0,fullBandwidth:true});
-  const result=phaseSearch(projections.event,projections.noise,job.steps,projections.noiseCovariance);
+  const result=jointBeam(projections);
   let amplitudeSum=0,energy=0;
   for(let i=0;i<q.length;i+=2){const amplitude=Math.hypot(q[i],q[i+1]);amplitudeSum+=amplitude;energy+=amplitude*amplitude;}
   const T_coh=match.pulses*meta.samples/p.fs,effectiveTime=T_coh;

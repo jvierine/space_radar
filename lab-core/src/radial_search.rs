@@ -10,6 +10,7 @@ pub(super) struct Radial {
     pub epsilon: f64,
     pub bin_loss: f64,
     pub refined: Option<[f64; 3]>,
+    pub candidates: Vec<f32>, // exact grid checks, [r,v,a,GLS score,orientation]
 }
 fn axis(lo: f64, hi: f64, step: f64) -> Vec<f64> {
     let intervals = ((hi - lo) / step).ceil().max(0.) as usize;
@@ -76,37 +77,85 @@ impl Radial {
         {
             return None;
         }
-        let epsilon = (1. - loss).sqrt().acos();
-        let nf = (8 * a.n).next_power_of_two();
-        let ns = if a.pulses == 1 {
-            1
-        } else {
-            (8 * a.pulses).next_power_of_two()
-        };
-        let h = (a.pulses - 1) as f64 * a.period / 2. + (a.n - 1) as f64 / (2. * a.fs);
+        // L=1-|<q_true,q_bank>|²/(||q_true||²||q_bank||²).
+        // For unit-amplitude templates, L <= Var(delta phase). Centering removes
+        // irrelevant constant phase. Minkowski bounds the RMS of the complete
+        // grid + shared-correction + FFT-lookup phase error over ALL acquired samples.
+        if a.receiver {
+            return None;
+        } // amplitude-response reference uses direct mode
         let eta = (a.n - 1) as f64 / (2. * a.fs);
         let f = a.f0 + a.slope * (a.adc + eta);
         let k = 4. * PI / C;
         let l = 4. * PI * a.slope / (C * C);
         let vmax = b[1][0].abs().max(b[1][1].abs());
         let amax = b[2][0].abs().max(b[2][1].abs());
-        // Global polynomial derivative bound, including FMCW cross terms and tau².
-        let da = 0.5 * (k * f.abs() + 2. * l.abs() * b[0][1]) * h * h
-            + 0.5 * k * a.slope.abs() * eta * h * h
-            + l.abs() * (vmax * h.powi(3) + 0.5 * amax * h.powi(4));
-        let dv = k * a.slope.abs() * eta * h + l.abs() * (2. * vmax * h * h + amax * h.powi(3));
-        let astep = 2. * epsilon / da.max(1e-30);
-        let dr = l.abs() * amax * h * h * (b[0][1] - b[0][0]) / 2.;
-        if dr >= epsilon {
+        let mut basis = vec![vec![]; 6];
+        for pulse in 0..a.pulses {
+            for j in 0..a.n {
+                let u = j as f64 / a.fs - eta;
+                let h = (pulse as f64 - (a.pulses - 1) as f64 / 2.) * a.period + u;
+                for (i, x) in [h, h * h, h.powi(3), h.powi(4), u * h, u * h * h]
+                    .into_iter()
+                    .enumerate()
+                {
+                    basis[i].push(x);
+                }
+            }
+        }
+        let sd = |xs: &Vec<f64>| {
+            let mean = xs.iter().sum::<f64>() / xs.len() as f64;
+            (xs.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / xs.len() as f64).sqrt()
+        };
+        let s: Vec<f64> = basis.iter().map(sd).collect();
+        let su = ((a.n * a.n - 1) as f64 / 12.).sqrt() / a.fs;
+        let da = 0.5 * (k * f.abs() + 2. * l.abs() * b[0][1]) * s[1]
+            + 0.5 * k * a.slope.abs() * s[5]
+            + l.abs() * (vmax * s[2] + 0.5 * amax * s[3]);
+        let dv = k * a.slope.abs() * s[4] + l.abs() * (2. * vmax * s[1] + amax * s[2]);
+        let dr = l.abs() * amax * s[1] * (b[0][1] - b[0][0]) / 2.;
+        // Full-model parameter-grid derivatives, including the dominant tones.
+        let gr = k * a.slope.abs() * su + 2. * l.abs() * vmax * s[0] + l.abs() * amax * s[1];
+        let gv = (k * f.abs() + 2. * l.abs() * b[0][1]) * s[0] + dv;
+        let mut nf = (8 * a.n).next_power_of_two();
+        let mut ns = if a.pulses == 1 {
+            1
+        } else {
+            (8 * a.pulses).next_power_of_two()
+        };
+        let (rstep, vstep, epsilon, bin_loss) = loop {
+            let rs = C * a.fs / (2. * a.slope.abs() * nf as f64);
+            let vs = if ns == 1 {
+                C * a.fs / (2. * f.abs() * nf as f64)
+            } else {
+                C / (2. * f.abs() * ns as f64 * a.period)
+            };
+            let sf = PI * ((a.n * a.n - 1) as f64 / 12.).sqrt() / nf as f64;
+            let ss = if ns == 1 {
+                0.
+            } else {
+                PI * ((a.pulses * a.pulses - 1) as f64 / 12.).sqrt() / ns as f64
+            };
+            let lookup = (sf * sf + ss * ss).sqrt();
+            let grid = 0.5 * (gr * rs + gv * vs);
+            if lookup + grid < 0.6 * loss.sqrt() {
+                break (rs, vs, loss.sqrt() - lookup - grid, lookup * lookup);
+            }
+            nf *= 2;
+            if ns > 1 {
+                ns *= 2;
+            }
+            if nf > 16384 || ns > 4096 {
+                return None;
+            }
+        };
+        // Split the remaining integrated-phase RMS budget between acceleration
+        // spacing and range/velocity correction sharing.
+        let astep = epsilon / da.max(1e-30);
+        if dr >= epsilon / 2. {
             return None;
         }
-        let vgroup = 2. * (epsilon - dr) / dv.max(1e-30);
-        let rstep = C * a.fs / (2. * a.slope.abs() * nf as f64);
-        let vstep = if ns == 1 {
-            C * a.fs / (2. * f.abs() * nf as f64)
-        } else {
-            C / (2. * f.abs() * ns as f64 * a.period)
-        };
+        let vgroup = (epsilon - 2. * dr) / dv.max(1e-30);
         // Validate counts before allocation; never shrink the user's bounds.
         let count = |lo: f64, hi: f64, step: f64| -> Option<usize> {
             if !step.is_finite() || step <= 0. {
@@ -141,14 +190,6 @@ impl Radial {
                 first = last;
             }
         }
-        let sinc = |x: f64| if x == 0. { 1. } else { x.sin() / x };
-        let bin_loss = 1.
-            - sinc(PI * a.n as f64 / (2. * nf as f64)).powi(2)
-                * if ns == 1 {
-                    1.
-                } else {
-                    sinc(PI * a.pulses as f64 / (2. * ns as f64)).powi(2)
-                };
         Some(Self {
             axes,
             nf,
@@ -157,6 +198,7 @@ impl Radial {
             epsilon,
             bin_loss,
             refined: None,
+            candidates: vec![],
         })
     }
     pub fn theta(&self, i: usize) -> [f64; 3] {
@@ -216,7 +258,7 @@ fn group_plan(
     let bank = a.radial.as_ref().unwrap();
     let (ia, first, last) = bank.groups[index];
     let (nf, ns) = (bank.nf, bank.ns);
-    let r = bank.axes[0][bank.axes[0].len() / 2];
+    let r = (bank.axes[0][0] + bank.axes[0][bank.axes[0].len() - 1]) / 2.;
     let v = (bank.axes[2][first] + bank.axes[2][last - 1]) / 2.;
     let th = [r, v, bank.axes[1][ia]];
     let mid = a.adc + (a.n - 1) as f64 / (2. * a.fs);
@@ -297,7 +339,9 @@ pub(super) fn search_group(a: &mut Engine, index: usize) {
                 *d += z.power() / (a.noise.len() / a.channels()) as f64;
             }
         }
-        if !a.noise_power.is_empty(){noise.fill(a.noise_power.iter().sum::<f64>()*(a.n*a.pulses) as f64);}
+        if !a.noise_power.is_empty() {
+            noise.fill(a.noise_power.iter().sum::<f64>() * (a.n * a.pulses) as f64);
+        }
         for (i, j) in lookup {
             if noise[j] > 1e-24 {
                 let score = (event[j] / noise[j]) as f32;
@@ -336,28 +380,52 @@ pub(super) fn gpu_group(a: &mut Engine, index: usize, orientation: usize) {
 
 pub(super) fn refine(a: &mut Engine, count: usize) {
     a.radial.as_mut().unwrap().refined = None;
-    let mut top: Vec<usize> = (0..a.scores.len())
-        .filter(|&i| a.scores[i].is_finite())
-        .collect();
-    top.sort_unstable_by(|&i, &j| a.scores[j].total_cmp(&a.scores[i]));
-    top.truncate(count);
-    a.best_score = -1.;
-    for i in top {
-        let q = values(a, a.radial.as_ref().unwrap().theta(i));
-        if q.iter().map(|z| z.power()).sum::<f64>() < 1e-24 {
+    // Positive finite f32 bits have the same ordering as their numerical scores.
+    // A bounded heap avoids allocating and sorting one index per bank node.
+    let mut heap = std::collections::BinaryHeap::new();
+    let mut branches = std::collections::BTreeMap::new();
+    let bank = a.radial.as_ref().unwrap();
+    for (i, &score) in a.scores.iter().enumerate() {
+        if !score.is_finite() {
             continue;
         }
-        let mut best = (0., 0.);
-        for conj in [false, true] {
-            let noise = a.quiet_power(&q, conj);
-            if noise > 1e-24 {
-                let score = a.event_power(&q, conj) / noise;
-                if score > best.0 {
-                    best = (score, conj as u8 as f32);
-                }
+        let rank = (score.to_bits(), i);
+        if count > 0 {
+            heap.push(std::cmp::Reverse(rank));
+            if heap.len() > count {
+                heap.pop();
             }
         }
+        let f = frequencies(a, bank.theta(i));
+        let key = (
+            (f[0] / a.fs).round() as i64,
+            (f[1] * a.period).round() as i64,
+        );
+        let entry = branches.entry(key).or_insert(rank);
+        if rank > *entry {
+            *entry = rank;
+        }
+    }
+    let mut top: Vec<usize> = heap
+        .into_iter()
+        .map(|v| v.0 .1)
+        .chain(branches.values().map(|v| v.1))
+        .collect();
+    top.sort_unstable();
+    top.dedup();
+    a.radial.as_mut().unwrap().candidates.clear();
+    a.best_score = -1.;
+    for i in top {
+        let best = exact_score(a, a.radial.as_ref().unwrap().theta(i));
 
+        let th = a.radial.as_ref().unwrap().theta(i);
+        a.radial.as_mut().unwrap().candidates.extend([
+            th[0] as f32,
+            th[1] as f32,
+            th[2] as f32,
+            best.0 as f32,
+            best.1,
+        ]);
         a.signs[i] = best.1;
         if best.0 > a.best_score {
             a.best_score = best.0;
@@ -376,17 +444,15 @@ fn exact_score(a: &Engine, th: [f64; 3]) -> (f64, f32) {
     }
     let mut best = (-1., 0.);
     for conj in [false, true] {
-        let quiet = a.quiet_power(&q, conj);
-        if quiet > 1e-24 {
-            let score = a.event_power(&q, conj) / quiet;
-            if score.is_finite() && score > best.0 {
-                best = (score, conj as u8 as f32);
-            }
+        let score = a.joint_score(&q, conj);
+        if score.is_finite() && score > best.0 {
+            best = (score, conj as u8 as f32);
         }
     }
     best
 }
-// Bounded Nelder-Mead in grid-spacing units, using the actual quadratic phase.
+// Bounded Nelder-Mead on the profiled, noise-weighted joint least-squares objective.
+// Complex receiver amplitudes (and hence interferometric phases) are solved analytically.
 // The discrete MAX maps remain unchanged; only the reported best-fit is refined.
 pub(super) fn refine_peak(a: &mut Engine) {
     if a.best_score < 0. {
@@ -573,6 +639,37 @@ mod tests {
                         < 2e-5 * (1. + expected.power().sqrt())
                 );
             }
+        });
+    }
+    #[test]
+    fn fast_and_slow_alias_branches_preserve_physical_grid_nodes() {
+        with_engine(|a| {
+            let th = [0.9, 500., 0.];
+            let f = frequencies(a, th);
+            // One slow alias and one fast sampling alias: solve frequency map exactly.
+            let slow = f[1] + 1. / a.period;
+            let fast = f[0] - a.fs;
+            let r = C * (slow - fast) / (2. * a.slope);
+            let mid = a.adc + (a.n - 1) as f64 / (2. * a.fs);
+            let v = slow / (-2. * (a.f0 + a.slope * mid) / C + 4. * a.slope * r / (C * C));
+            let other = frequencies(a, [r, v, 0.]);
+            assert!((r - th[0]).abs() > 10.);
+            assert!((v - th[1]).abs() > 50.);
+            assert_eq!(bin(f[0], a.fs, 256), bin(other[0], a.fs, 256));
+            assert_eq!(
+                bin(f[1], 1. / a.period, 64),
+                bin(other[1], 1. / a.period, 64)
+            );
+            let bank = Radial::new(
+                a,
+                [[th[0], r], [v.min(th[1]), v.max(th[1])], [0., 0.]],
+                0.05,
+                16000000,
+            )
+            .unwrap();
+            assert!(bank.axes[0].contains(&r));
+            assert!(bank.axes[2].contains(&v));
+            assert!(bank.len() > 1); // modulo lookup never replaces the physical grid
         });
     }
     #[test]

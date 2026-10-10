@@ -3,6 +3,7 @@ Render the full scene with --disable_caching.
 All plotted trajectories and phase vectors are synthetic.
 """
 from pathlib import Path
+import re
 import h5py
 import numpy as np
 from manim import *
@@ -12,6 +13,7 @@ from radial_fft_assets import generate
 from radial_fft_demo import generate_demo
 from radial_beamforming_slides import beamforming_slides
 from radial_fft_integration_slides import integration_slides
+from radial_fft_cost_slides import cost_slides
 
 FG, MUTED, BLUE, ORANGE, PURPLE = '#202830','#556575','#176BB0','#B55A00','#7939A8'
 
@@ -23,7 +25,8 @@ class RadialFFTSearch(Slide):
         self.add(self.footer)
 
     def prose(self,s,size=29,color=FG):
-        for symbol,word in [('λ','lambda'),('φ','phi'),('σ','sigma'),('ε','epsilon'),('Δ','Delta '),('⁻¹²','^(-12)'),('i²','i squared')]:s=s.replace(symbol,word)
+        if re.search(r'\b(?:t0|r0|v0|a0|y0|X0|Pn|phia|lambda|gamma|theta|epsilon|fs)\b|[λφσεΔθ]',s):
+            raise ValueError(f'Use eq() or texrow() for mathematical symbols: {s}')
         m=Text(s,font_size=size,color=color)
         if m.width>12.5:m.scale_to_fit_width(12.5)
         return m
@@ -33,7 +36,22 @@ class RadialFFTSearch(Slide):
         if m.width>12.5:m.scale_to_fit_width(12.5)
         return m
 
+    def texrow(self,s,size=27):
+        m=Tex(s,font_size=size,color=MUTED)
+        if m.width>12.5:m.scale_to_fit_width(12.5)
+        return m
+
+    def callout(self,target,label,position,color=BLUE):
+        text=self.prose(label,24,color).move_to(position)
+        arrow=Arrow(text.get_bottom() if position[1]>target.get_center()[1] else text.get_top(),
+                    target.get_top() if position[1]>target.get_center()[1] else target.get_bottom(),
+                    color=color,buff=.12,stroke_width=3)
+        self.play(FadeIn(text),GrowArrow(arrow),run_time=.6)
+        self.play(Indicate(target,color=color),run_time=.6)
+        return VGroup(text,arrow)
+
     def start(self,title,notes=''):
+
         # Store the completed previous slide before outgoing cleanup.
         self.next_slide(title,notes=notes)
         if self.started:
@@ -43,7 +61,7 @@ class RadialFFTSearch(Slide):
         self.play(FadeIn(self.prose(title,42).to_edge(UP,buff=.35)),run_time=.4)
 
     def content(self,equations,rows=()):
-        group=VGroup(*[self.eq(s) for s in equations],*[self.prose(s,27,MUTED) for s in rows]).arrange(DOWN,buff=.48)
+        group=VGroup(*[self.eq(s) for s in equations],*[self.prose(s,27,MUTED) if "$" not in s else self.texrow(s,27) for s in rows]).arrange(DOWN,buff=.48)
         if group.height>5.7:group.scale_to_fit_height(5.7)
         group.move_to(DOWN*.2)
         self.play(FadeIn(group),run_time=.8)
@@ -53,7 +71,7 @@ class RadialFFTSearch(Slide):
         return ImageMobject(str(Path(__file__).parent/'media/radial_fft_demo'/f'{name}.png')).scale_to_fit_width(width)
 
     def construct(self):
-        demo=generate_demo()
+        generate_demo()
         path=generate()
         with h5py.File(path) as f:
             phase=f['phase_rad'][:];beat_times=(f['h_s'][:]-f['h_s'][:].min())*1e6
@@ -79,7 +97,7 @@ class RadialFFTSearch(Slide):
             self.eq(r'a_0:\ \text{how that velocity changes}',39),
         ).arrange(DOWN,buff=.55).move_to(DOWN*.7)
         self.play(Write(model));self.play(FadeIn(definitions))
-        times=VGroup(self.prose('R(t) is radar-to-target distance at sample time t.',27,MUTED),self.prose('t0 is the midpoint of the selected chirp train.',27,MUTED)).arrange(DOWN,buff=.23).move_to(DOWN*2.95)
+        times=VGroup(self.texrow(r'$R(t)$: radar-to-target distance at sample time $t$.',27),self.texrow(r'$t_0$: midpoint of the selected chirp train.',27)).arrange(DOWN,buff=.23).move_to(DOWN*2.95)
         self.play(FadeIn(times))
         self.wait(1)
 
@@ -90,7 +108,7 @@ class RadialFFTSearch(Slide):
         labels=VGroup(self.prose('Radar',26,BLUE).next_to(drawing[0],DOWN),self.prose('Projectile',26,ORANGE).next_to(drawing[1],UP),self.eq(r'r_0',32).move_to([-3.25,.15,0]),self.eq(r'y_0',32).move_to([-5.5,.45,0]),self.eq(r'X_0',32).move_to([-3.6,1.1,0]))
         eqs=VGroup(self.eq(r'r_0=\sqrt{X_0^2+y_0^2}',40),self.eq(r'v_0=\frac{VX_0}{r_0}',40),self.eq(r'a_0=\frac{V^2y_0^2}{r_0^3}\geq0',40)).arrange(DOWN,buff=.5).move_to([3,.5,0])
         self.play(FadeIn(drawing),FadeIn(labels));self.play(FadeIn(eqs))
-        explanation=VGroup(self.prose('X0: along-track separation. y0: distance from radar to the path.',26),self.prose('V: straight-line velocity. v0: radial velocity.',27),self.prose('Range can decrease while radial acceleration is positive.',27)).arrange(DOWN,buff=.4).move_to(DOWN*2.35)
+        explanation=VGroup(self.texrow(r'$X_0$: along-track separation; $y_0$: distance to the path.',26),self.texrow(r'$V$: straight-line velocity; $v_0$: radial velocity.',27),self.prose('Range can decrease while radial acceleration is positive.',27)).arrange(DOWN,buff=.4).move_to(DOWN*2.35)
         self.play(FadeIn(explanation));self.wait(1)
 
         self.start('Why the range, velocity and acceleration formulas are exact',
@@ -101,9 +119,9 @@ class RadialFFTSearch(Slide):
             r'\ddot R=\frac{V^2}{R}-\frac{V^2X^2}{R^3}=\frac{V^2y_0^2}{R^3}',
         ],[
             'A dot means differentiation with respect to time.',
-            'At t0: X = X0, R = r0, velocity = v0, acceleration = a0.',
-            'Exact for constant V, fixed y0 and nonzero range.',
-            'The quadratic model approximates motion away from t0.',
+            r'At $t_0$: $X=X_0$, $R=r_0$, $\dot R=v_0$, $\ddot R=a_0$.',
+            r'Exact for constant $V$, fixed $y_0$ and $R>0$.',
+            r'The quadratic model approximates motion away from $t_0$.',
         ])
 
         self.start('Write down the coherent integration',
@@ -143,36 +161,44 @@ class RadialFFTSearch(Slide):
         correction=self.eq(r'z_jq_j^*=A\quad\text{when }z_j=Aq_j',40).move_to(DOWN*2.25)
         self.play(FadeIn(correction))
         self.play(UpdateFromAlphaFunc(wave,lambda m,alpha:m.become(curves(alpha))),run_time=5,rate_func=linear)
-        self.play(FadeIn(self.prose('All echo samples now have the same phase: their complex sum is N × A.',27).move_to(DOWN*2.95)))
-        self.play(FadeIn(self.prose('q: full predicted echo. A: echo amplitude. N: acquired samples. Synthetic noiseless signal.',22,MUTED).move_to(DOWN*3.4)))
+        self.play(FadeIn(self.texrow(r'All echo samples now have the same phase: their complex sum is $NA$.',27).move_to(DOWN*2.95)))
+        self.play(FadeIn(self.texrow(r'$q$: predicted echo; $A$: amplitude; $N$: acquired samples. Noiseless illustration.',22).move_to(DOWN*3.4)))
         self.wait(1)
 
-        self.start('Why the matched filter maximizes signal-to-noise ratio',
-            'For z=Aq+n and white complex noise variance Pn per acquired sample, output w dagger z has signal power |A| squared |w dagger q| squared and variance Pn ||w|| squared. Cauchy-Schwarz gives upper bound |A| squared ||q|| squared/Pn, reached for w proportional q. For phase-only templates ||q|| squared=N. Colored noise requires inverse covariance weighting; the GUI assumes temporal white noise after quiet subtraction.')
-        self.content([
-            r'z=Aq+n,\qquad \mathrm{SNR}_{\rm out}=\frac{|A|^2|w^Hq|^2}{P_n\|w\|^2}',
-            r'|w^Hq|^2\leq\|w\|^2\|q\|^2\quad\Longrightarrow\quad w\propto q',
-            r'\mathrm{SNR}_{\rm max}=N\frac{|A|^2}{P_n}\quad\text{for }|q_j|=1',
-        ],[
-            'z: acquired voltage vector. q: predicted echo. n: noise. A: echo amplitude.',
-            'w: integration weights. H: conjugate transpose. Squared norm: sum of powers.',
-            'Pn: noise variance per sample. N: acquired samples.',
-            'The inequality is Cauchy–Schwarz; matching the echo attains its bound.',
-            'Assumes independent, equal-variance noise across time samples.',
-        ])
+
+        self.start('Least squares exposes the matched-filter inner product',
+            'For complex z=Aq(theta)+n, expand J=(z-Aq)^H(z-Aq). The cross term contains q^H z, the model-measurement inner product and temporal matched filter.')
+        self.play(Write(self.eq(r'z=Aq(\theta)+n,\qquad J(A,\theta)=\|z-Aq(\theta)\|^2',41).move_to(UP*1.8)))
+        expansion=MathTex(r'J=',r'z^Hz',r'+|A|^2q^Hq',r'-2\operatorname{Re}\{A^*',r'q^Hz',r'\}',font_size=43,color=FG).move_to(UP*.3)
+        self.play(Write(expansion))
+        self.callout(expansion[1],'Measured energy',[-4.7,1.3,0],MUTED)
+        self.callout(expansion[2],'Predicted energy',[-1,-1.05,0],ORANGE)
+        self.callout(expansion[4],'Model–measurement inner product',[4,-1.05,0],BLUE)
+        self.play(Write(self.eq(r's(\theta)=q(\theta)^Hz=\sum_jq_j(\theta)^*z_j',44).set_color(BLUE).move_to(DOWN*2)))
+        self.play(FadeIn(self.texrow(r'$z$: complex measurements; $q$: predicted echo; $A$: complex amplitude; $n$: noise.',25).move_to(DOWN*2.95)))
+        self.play(FadeIn(self.texrow(r'$H$: conjugate transpose; $j$: sample over the entire acquired train; $\theta=(r_0,v_0,a_0)$.',24).move_to(DOWN*3.4)))
+        self.wait(1)
+
+        self.start('Fit the amplitude; maximize normalized matched energy',
+            'Complete the square with Q=q^Hq>0 and s=q^Hz. Minimizing over A gives Ahat=s/Q and Jmin=z^Hz-|s|^2/Q. Therefore trajectory fitting maximizes normalized matched energy. White Gaussian noise makes least squares likelihood fitting; independent temporal noise gives matched variance Pn Q. Correct-template SNR is |A|^2 Q/Pn, N times per-sample SNR for unit-magnitude samples. Colored noise requires inverse covariance weighting.')
+        self.play(Write(self.eq(r'Q=q^Hq,\quad s=q^Hz,\quad J=Q\left|A-\frac{s}{Q}\right|^2+z^Hz-\frac{|s|^2}{Q}',39).move_to(UP*1.9)))
+        self.play(Write(self.eq(r'\widehat A=\frac{s}{Q},\qquad \widehat\theta=\operatorname*{arg\,max}_{\theta}\frac{|q(\theta)^Hz|^2}{q(\theta)^Hq(\theta)}',41).move_to(UP*.6)))
+        self.play(Write(self.eq(r'\mathbb E|q^Hn|^2=P_nQ,\qquad \rho=\frac{|s|^2}{P_nQ}',38).move_to(DOWN*.55)))
+        self.play(Write(self.eq(r'\mathrm{SNR}_{\rm signal,out}=\frac{|A|^2Q}{P_n}=N\frac{|A|^2}{P_n}\quad\text{if }|q_j|=1',36).move_to(DOWN*1.65)))
+        self.play(FadeIn(self.texrow(r'$Q$: template energy; $P_n$: noise power per sample; $N$: acquired samples.',25).move_to(DOWN*2.65)))
+        self.play(FadeIn(self.texrow(r'With colored noise: $s=q^HC_n^{-1}z$, $Q=q^HC_n^{-1}q$; $C_n$: temporal noise covariance.',24).move_to(DOWN*3.2)))
+        self.wait(1)
 
         self.start('Acceleration adds a changing phase',
             'Synthetic uniform carrier-phase example at 77 GHz. Isolates the acceleration term for teaching; production uses full FMCW phase, including fast-time chirp terms. Convention q=exp(-i4pi R/lambda).')
-        self.play(Write(self.eq(r'h=t-t_0,\quad \Delta R_a=\tfrac12a_0h^2,\quad \phi_a=-\frac{2\pi a_0h^2}{\lambda}',40).move_to(UP*2)))
-        self.play(FadeIn(self.prose('h: time from midpoint. λ: wavelength. φa: acceleration phase.',23,MUTED).move_to(UP*1.25)))
-        self.play(FadeIn(self.demo_image('acceleration_factor',12.5).move_to(DOWN*.75)))
-        self.play(FadeIn(self.prose('Complex factor = cos(φa) + i sin(φa); i² = -1.',27).move_to(DOWN*2.8)))
-        self.play(FadeIn(self.prose('Synthetic Doppler example; the GUI uses the full FMCW phase.',23,MUTED).move_to(DOWN*3.25)))
+        self.play(Write(VGroup(self.eq(r'h=t-t_0,\quad \Delta R_a=\tfrac12a_0h^2,\quad \phi_a=-\frac{2\pi a_0h^2}{\lambda}',38),self.eq(r'c_j=e^{i\phi_a(h_j)}\quad\text{acceleration factor at sample }j',32)).arrange(DOWN,buff=.35).move_to(UP*2.3)))
+        self.play(FadeIn(self.eq(r'h:\ \text{time from midpoint};\quad\lambda:\ \text{wavelength};\quad\phi_a:\ \text{acceleration phase}',26).move_to(UP*1.15)))
+        self.play(FadeIn(self.demo_image('acceleration_factor',12.5).move_to(DOWN*.95)))
         self.wait(1)
 
         self.start('Undo the trial acceleration in the complex voltage',
             'Multiply measured complex voltage by conjugate of the trial acceleration factor. Correct trial removes chirping; wrong trials leave changing phase. A unit-magnitude factor changes phase without changing instantaneous power.')
-        self.play(FadeIn(self.prose('Corrected voltage = measured voltage × conjugate trial factor',30).move_to(UP*2.6)))
+        self.play(FadeIn(self.eq(r'z_{\rm corrected,j}=z_jc_j^*\quad\text{(undo the acceleration phase)}',38).move_to(UP*2.6)))
         self.play(FadeIn(self.demo_image('complex_voltage',12).move_to(DOWN*.2)))
         self.play(FadeIn(self.prose('Conjugation reverses phase. The correct trial leaves a constant-frequency wave.',25,MUTED).move_to(DOWN*3.05)))
         self.wait(1)
@@ -181,7 +207,7 @@ class RadialFFTSearch(Slide):
             'Uniform-sampling teaching example: Doppler frequency f=-2v/lambda. FFT evaluates all sampled-frequency inner products at once. In full FMCW, fast frequency mixes range and velocity and slow frequency carries Doppler; repeat bounded correction groups rather than claiming one FFT covers every physical template.')
         self.play(FadeIn(self.demo_image('velocity_search',12).move_to(UP*.1)))
         self.play(FadeIn(self.prose('Try acceleration → correct the voltage → FFT → read every velocity-bin power.',27).move_to(DOWN*2.45)))
-        self.play(FadeIn(self.prose('Here Doppler frequency f = -2v / λ; v is radial velocity.',26,MUTED).move_to(DOWN*3.05)))
+        self.play(FadeIn(self.eq(r'f_D=-\frac{2v}{\lambda}\quad\text{where }v\text{ is radial velocity}',35).move_to(DOWN*3.05)))
         self.wait(1)
 
         self.start('How can we do this efficiently?',
@@ -201,93 +227,137 @@ class RadialFFTSearch(Slide):
         self.play(LaggedStart(*[FadeIn(row) for row in branches],lag_ratio=.35))
         self.play(FadeIn(self.prose('Each bar is a velocity-bin matched power; keep the best across all rows.',26).move_to(DOWN*2.2)))
         self.play(Write(self.eq(r'\text{Direct: }O(NN_v)\qquad\text{FFT: }O(L\log_2L)',35).move_to(DOWN*2.85)))
-        self.play(FadeIn(self.prose('N: acquired samples. Nv: velocity bins. L: FFT length (including padding).',23,MUTED).move_to(DOWN*3.4)))
+        self.play(FadeIn(self.texrow(r'$N$: acquired samples; $N_v$: velocity bins; $L$: padded FFT length.',23).move_to(DOWN*3.4)))
         self.wait(1)
 
         self.start('An FFT is the matched-filter sum, evaluated for every bin',
             'Exact algebra for factored sampled templates at DFT bins: q_mj=c_j exp(i2pi mj/L), s_m=sum z_j conjugate(q_mj)=DFT of z conjugate(c) at bin m. N acquired samples, L FFT length with zero padding; m bin, j sample. Exact factorization is not proof that approximate grouped production corrections match every exact physical template; direct verification follows.')
-        self.content([
-            r'q_{m,j}=c_j e^{2\pi i m j/L}',
+        fft_math = VGroup(*[self.eq(line,36) for line in [
+            r'\text{From the acceleration slide: }c_j=e^{i\phi_a(h_j)},\quad\phi_a(h_j)=-\frac{2\pi a_0h_j^2}{\lambda}',
+            r'q_{m,j}=\underbrace{c_j}_{\text{acceleration}}\underbrace{e^{2\pi i m j/L}}_{\text{velocity-bin sinusoid}}',
             r's_m=\sum_{j=0}^{N-1}z_jq_{m,j}^*=\sum_{j=0}^{N-1}(z_jc_j^*)e^{-2\pi i m j/L}',
             r's_m=\operatorname{FFT}(z\,c^*)_m',
+        ]], *[self.eq(line,27) for line in [
+            r'z_j:\ \text{measured voltage};\quad c_j^*:\ \text{undoes the earlier acceleration phase}',
+            r'q_{m,j}:\ \text{predicted echo};\quad j:\ \text{sample};\quad m:\ \text{frequency bin}',
+            r'N:\ \text{acquired samples};\quad L:\ \text{padded FFT length}',
+        ]], self.prose('Zero-pad before the FFT: each bin is one matched-filter sum.',25,MUTED)).arrange(DOWN,buff=.22)
+        if fft_math.height>5.7:fft_math.scale_to_fit_height(5.7)
+        fft_math.move_to(DOWN*.1)
+        self.play(FadeIn(fft_math));self.wait(1)
+
+
+        self.start('Coarse search: complex FFT pseudocode',
+            'For both possible stored complex phase conventions, loop over the automatic correction groups. Each group contains one acceleration and a bounded velocity interval. Correct complex voltages, perform fast FFT per chirp, then slow FFT on the physical grid column union. Preserve complex outputs. Map every physical node through signed, modulo-wrapped frequency bins, score four receiver energies by expected matched noise. Keep distinct alias branches and full-bank peaks. Final GLS fit is on the following slide.')
+        code=[
+            (0,r'\textbf{grid} $\gets\operatorname{Grid}(\text{bounds},L_{\rm dB})$',FG),
+            (0,r'\textbf{for} $\sigma\in\{+1,-1\}$: \quad \textit{complex phase convention}',MUTED),
+            (1,r'\textbf{for each} correction group $g$:',FG),
+            (2,r'$c_{g,k,j}\gets e^{i\sigma\psi_g(k,j)}$',ORANGE),
+            (2,r'$\mathcal M_g\gets\operatorname{UniqueFastBins}(\text{grid}_g,\sigma)$',FG),
+            (2,r'\textbf{for each} receiver $b$:',FG),
+            (3,r'$x_{b,k,j}\gets z_{b,k,j}c_{g,k,j}^{*}$',ORANGE),
+            (3,r'$F_{b,k,:}\gets\operatorname{FFT}_{j}(x_{b,k,:})$',BLUE),
+            (3,r'$S_{b,:,m}\gets\operatorname{FFT}_{k}(F_{b,:,m}),\quad m\in\mathcal M_g$',BLUE),
+            (2,r'\textbf{for each} physical node $\theta=(r_0,v_0,a_0)\in\text{grid}_g$:',FG),
+            (3,r'$(m,\ell)\gets\operatorname{WrappedBins}(\theta,\sigma)$',FG),
+            (3,r'$\rho(\theta,\sigma)\gets\sum_b|S_{b,\ell,m}|^2/(Q\sum_bP_{n,b})$',FG),
+            (0,r'\textbf{seeds} $\gets$ bank peaks and strongest candidates per alias branch',PURPLE),
+        ]
+        rows=VGroup()
+        for indent,line,color in code:
+            row=self.texrow(line,25).set_color(color)
+            row.to_edge(LEFT,buff=.65+indent*.36)
+            rows.add(row)
+        rows.arrange(DOWN,buff=.18,aligned_edge=LEFT)
+        # Preserve indentation after vertically arranging the rows.
+        for row,(indent,_,_) in zip(rows,code):row.to_edge(LEFT,buff=.65+indent*.36)
+        rows.move_to(DOWN*.05)
+        self.play(LaggedStart(*[FadeIn(row) for row in rows],lag_ratio=.12))
+        self.play(FadeIn(self.texrow(r'$Q=\sum_{k,j}|q_{k,j}|^2$; $g$: correction group; $m,\ell$: fast and slow bins.',22).move_to(DOWN*3.35)))
+        self.wait(1)
+
+        self.start('Final fit: noise-weighted refinement and coherent beamforming',
+            'Exact full-FMCW templates score the shortlisted physical seeds by profiled joint GLS. Starting from the strongest seed, bounded Nelder-Mead optimizes the three motion parameters while solving four complex amplitudes analytically at every trial. Per-sample receive covariance C comes from quiet residuals, temporally white assumption. The same fitted amplitudes give w proportional C^-1 Ahat and complex beam sBF=w^H s. Normalize weights without changing SNR; propagate Q w^H C w. Alternative aliases are retained, not declared uniquely resolved.')
+        code=[
+            r'\textbf{function} $\operatorname{FitScore}(\theta,\sigma)$:',
+            r'\qquad $q\gets\operatorname{FullFMCWEcho}(\theta,\sigma)$',
+            r'\qquad $\mathbf s\gets\sum_jq_j^*\mathbf z_j,\quad Q\gets\sum_j|q_j|^2$',
+            r'\qquad $\widehat{\mathbf A}\gets\mathbf s/Q$',
+            r'\qquad \textbf{return} $\mathbf s^H C^{-1}\mathbf s/Q$',
+            r'$(\theta_0,\sigma_*)\gets\operatorname*{arg\,max}_{\rm seeds}\operatorname{FitScore}(\theta,\sigma)$',
+            r'$\theta_*\gets\operatorname{BoundedNelderMeadMax}(\operatorname{FitScore},\theta_0,\sigma_*)$',
+            r'$\mathbf s_*,Q_*,\widehat{\mathbf A}_*\gets$ full-template evaluation at $\theta_*$',
+            r'$\mathbf w\gets C^{-1}\widehat{\mathbf A}_*/\|C^{-1}\widehat{\mathbf A}_*\|$',
+            r'$s_{\rm BF}\gets\mathbf w^H\mathbf s_*,\quad P_{n,\rm BF}\gets Q_*\mathbf w^H C\mathbf w$',
+        ]
+        rows=VGroup(*[self.texrow(line,27).set_color(PURPLE if i>=5 else FG) for i,line in enumerate(code)]).arrange(DOWN,buff=.25,aligned_edge=LEFT)
+        if rows.width>12:rows.scale_to_fit_width(12)
+        rows.move_to(DOWN*.1)
+        self.play(LaggedStart(*[FadeIn(row) for row in rows],lag_ratio=.15))
+        self.play(FadeIn(self.texrow(r'$C$: noise covariance; $\widehat{\mathbf A}$: fitted RX amplitudes; $\mathbf w$: beam weights.',22).move_to(DOWN*3.25)))
+        self.wait(1)
+
+        self.start('The acceleration correction in the full FMCW echo',
+            'Exact phase factorization at a representative correction group: phiFMCW=2pi[-(f0+gamma u) tau + gamma tau squared/2], tau=2R/c. R=r0+v0h+a0h squared/2. Residual psi subtracts dominant fast/slow sinusoids, including chirp resets and delay squared term. Phase-only c=exp(i psi), multiplied conjugate before FFT. Carrier-only acceleration contribution reduces to -2pi a0h squared/lambda from the earlier slide. Shared corrections are approximate away from representative parameters; final templates use full phase.')
+        self.content([
+            r'R=r_0+v_0h+\tfrac12a_0h^2,\quad\tau=\frac{2R}{c},\quad h=t-t_0',
+            r'\phi_{\rm FMCW}=2\pi\left[-(f_0+\gamma u)\tau+\tfrac12\gamma\tau^2\right]',
+            r'\psi=\phi_{\rm FMCW}-2\pi[f_{\rm fast}(u-\bar u)+f_{\rm slow}d]',
+            r'c_{k,j}=e^{i\psi_{k,j}},\quad x_{b,k,j}=z_{b,k,j}c_{k,j}^*',
+            r'\text{Earlier acceleration contribution: }\phi_a=-\frac{2\pi a_0h^2}{\lambda}',
         ],[
-            'zj: complex measurement. cj: trial phase correction. q: predicted signal.',
-            'j: sample index. m: frequency bin. N: samples. L: FFT length.',
-            'Zero-pad to L samples; each FFT bin is one matched-filter sum.',
-            'Two FFT axes apply the same identity within and between chirps.',
+            'Remove residual phase; leave the two sinusoids for the FFTs to search.',
+            r'$u$: within-chirp time; $\bar u$: midpoint; $d$: chirp-start offset.',
+            r'$f_0$: start frequency; $\gamma$: slope; $c$: speed of light.',
+            r'$\tau$: delay; $\lambda$: wavelength; $b$: RX; $k$: chirp; $j$: sample.',
         ])
-
-        self.start('The same answers, with shared computation',
-            'Independent NumPy direct phasor sums and FFT agree at all 356 velocity bins, for all three acceleration trials. Timings are medians of 101 runs, one BLAS thread, precomputed direct phasors; common correction excluded. This is a synthetic CPU illustration, not a browser benchmark.')
-        self.play(FadeIn(self.demo_image('fft_equals_direct',8).move_to([-2,.15,0])))
-        bench=VGroup(
-            self.prose(f"{demo['velocity_bins']} velocity bins",29,BLUE),
-            self.prose(f"Direct: {demo['cpu_direct_ms']:.3f} ms",27),
-            self.prose(f"FFT: {demo['cpu_fft_ms']:.3f} ms",27),
-            self.prose(f"{demo['speedup']:.1f}× faster in this example",26,BLUE),
-            self.prose('All bin powers agree',26),
-            self.prose('to within 1e-12.',26),
-        ).arrange(DOWN,buff=.35).move_to([4.2,.2,0])
-        self.play(FadeIn(bench))
-        self.play(FadeIn(self.prose('Synthetic NumPy CPU comparison; precomputed direct templates, 101-run median.',23,MUTED).move_to(DOWN*3.05)))
-        self.wait(1)
-
-        self.start('What our Rust / WebGPU implementation actually does',
-            'Source: lab-core/src/radial_search.rs spectrum/group_plan, web/lab/gpu-radial.mjs. Each acceleration plane has bounded velocity correction groups. Fast FFT per chirp, sparse slow FFT over selected frequency columns; physical node mapping handles aliases within user bounds. Add four RX powers for each I/Q orientation. Verify candidate nodes with full quadratic FMCW templates and refine. CPU fallback.')
-        rows=VGroup(*[self.prose(line,29,col) for line,col in [
-            ('1. Build correction groups across the allowed acceleration and velocity bounds.',FG),
-            ('2. For each receiver: multiply samples by the conjugate correction.',ORANGE),
-            ('3. FFT within each chirp; then FFT across chirps at needed frequency bins.',BLUE),
-            ('4. Map FFT bins to range / velocity / acceleration; add four RX powers.',FG),
-            ('5. Normalize by matched noise; keep candidates and refine with full templates.',PURPLE),
-        ]]).arrange(DOWN,buff=.55).move_to(UP*.1)
-        self.play(LaggedStart(*[FadeIn(row) for row in rows],lag_ratio=.3))
-        self.play(FadeIn(self.prose('Repeat for both I/Q orientations. WebGPU when available; Rust/Wasm fallback.',24,MUTED).move_to(DOWN*2.8)))
-        self.play(FadeIn(self.prose('Correction sharing is approximate; final candidates use the full FMCW model.',24,MUTED).move_to(DOWN*3.25)))
-        self.wait(1)
 
         integration_slides(self)
 
         self.start('You give the bounds. The software builds the grid.',
-            'Default bounds r0 .001..3 m, v0 0..600 m/s, a0 0..1e6 m/s2. FFT bin spacing sets r/v resolution; global phase derivative bounds set acceleration spacing and velocity groups. The phase tolerance is stagewise, not a bound on total model error. Oversized grids are rejected without truncating bounds; 32 million-node cap.')
+            'Default bounds r0 .001..3 m, v0 0..600 m/s, a0 0..1e6 m/s2. FFT bin spacing sets r/v resolution; global phase derivative bounds set acceleration spacing and velocity groups. The full modeled coherent integration loss includes physical grid spacing, shared corrections and FFT-bin lookup. Oversized grids are rejected without truncating bounds; 64 million-node cap.')
         bounds=VGroup(self.eq(r'0.001\leq r_0\leq3\ \mathrm{m}',44),self.eq(r'0\leq v_0\leq600\ \mathrm{m/s}',44),self.eq(r'0\leq a_0\leq10^6\ \mathrm{m/s^2}',44)).arrange(DOWN,buff=.6).move_to(UP*.3)
         self.play(FadeIn(bounds))
         self.play(FadeIn(self.prose('Grid: trial combinations of range, velocity and acceleration.',29).move_to(DOWN*2.1)))
         self.play(FadeIn(self.prose('Allowed loss: tolerated reduction of matched signal power.',28,MUTED).move_to(DOWN*2.9)))
         self.wait(1)
 
-        self.start('How many acceleration corrections are needed?',
-            'Carrier-phase bound with monostatic radial acceleration and midpoint origin: adjacent trial acceleration spacing Delta a gives maximum phase separation 2pi Delta a H squared/lambda where H=max_j|t_j-t0|. Require separation <=epsilon. Na=1+ceil((amax-amin)/Delta a) includes both endpoints. At nearest grid point acceleration mismatch <=Delta a/2. Fixed bounds and epsilon give Na-1 proportional H squared. In hard_target gmf_opts.py the corresponding start-referenced total-path convention uses pi Delta A tau squared/lambda with A=2a. GUI uses full FMCW phase-derivative bounds, not only carrier formula.')
-        ax=Axes(x_range=[-1,1,.5],y_range=[0,4,1],x_length=4.4,y_length=2.4,axis_config={'color':MUTED,'include_tip':False}).move_to([-4.3,.9,0])
-        curves=VGroup(*[ax.plot(lambda x,k=k:k*x*x,x_range=[-1,1],color=col) for k,col in enumerate([BLUE,ORANGE,PURPLE,MUTED])])
-        self.play(Create(ax),Create(curves))
-        self.play(FadeIn(self.prose('Phase separation / epsilon',22,MUTED).move_to([-4.3,2.5,0])))
-        self.play(FadeIn(self.prose('Adjacent phase curves stay within ε',22).move_to([-4.3,-.7,0])))
-        self.play(FadeIn(self.prose('Farthest samples: h = -H and +H',22,MUTED).move_to([-4.3,-1.2,0])))
-        formulas=VGroup(
-            self.eq(r'|\Delta\phi|_{\max}=\frac{2\pi\Delta a\,H^2}{\lambda}\leq\epsilon',34),
-            self.eq(r'\Delta a\leq\frac{\epsilon\lambda}{2\pi H^2}',34),
-            self.eq(r'N_a=1+\left\lceil\frac{a_{\max}-a_{\min}}{\Delta a}\right\rceil',34),
-        ).arrange(DOWN,buff=.55).move_to([2.5,.4,0])
-        self.play(FadeIn(formulas))
-        terms=VGroup(self.prose('Δa: grid spacing. ε: allowed adjacent phase separation (radians).',24),self.prose('H: largest sample time offset. λ: wavelength. Na: trial count (round up).',24),self.prose('Double the elapsed train span → about four times as many accelerations.',25,BLUE),self.prose('For gapped chirps use elapsed span here; noise T(coh) counts acquired sample time.',22,MUTED)).arrange(DOWN,buff=.22).move_to(DOWN*2.65)
-        self.play(FadeIn(terms));self.wait(1)
+        self.start('Choose the loss of the full coherent integration',
+            'The normalized full-template overlap is the retained matched signal power. For unit magnitude samples its loss is at most the population variance of the phase mismatch, after removing constant phase. The Rust grid budgets the RMS contributions of physical parameter-grid spacing, correction sharing and rounded FFT-bin lookup over every acquired sample. Default 2 dB, not an endpoint phase bound. Carrier-only acceleration illustrates why acceleration grid count grows as elapsed train duration squared; production uses full FMCW derivative bounds.')
+        overlap=MathTex(r'\eta=',r'\frac{|\langle q_{\rm true},q_{\rm bank}\rangle|^2}{\|q_{\rm true}\|^2\|q_{\rm bank}\|^2}',font_size=43,color=FG).move_to(UP*1.65)
+        self.play(Write(overlap))
+        self.callout(overlap[1],'Retained power after the entire coherent sum',[0,2.8,0],BLUE)
+        self.play(Write(self.eq(r'\ell=1-\eta\leq\operatorname{Var}_j(\delta\phi_j),\qquad\ell_{\max}=1-10^{-L_{\rm dB}/10}',37).move_to(UP*.25)))
+        self.play(Write(self.eq(r'L_{\rm dB}=2\quad\Longrightarrow\quad\eta\geq10^{-2/10}\approx0.631',38).set_color(BLUE).move_to(DOWN*.65)))
+        self.play(Write(self.eq(r'\delta\phi_j=-\frac{2\pi\delta a}{\lambda}h_j^2,\quad\sigma_{\phi}=\frac{2\pi|\delta a|}{\lambda}\operatorname{SD}_j(h_j^2)',35).move_to(DOWN*1.6)))
+        self.play(Write(self.eq(r'|\delta a|\leq\Delta a/2,\quad N_a-1=\left\lceil\frac{a_{\max}-a_{\min}}{\Delta a}\right\rceil\propto T_{\rm span}^2',35).move_to(DOWN*2.45)))
+        self.play(FadeIn(self.texrow(r'$h_j=t_j-t_0$; $\operatorname{SD}_j$: spread over all acquired samples; $T_{\rm span}$: elapsed train duration.',22).move_to(DOWN*3.1)))
+        self.wait(1)
+
+        cost_slides(self)
 
         self.start('Estimate noise from the quiet beat signal',
             'Per-RX residual noise variance uses every intact selected quiet chirp and all fast-time samples. Quiet mean is independently fitted per RX and fast-time sample. Division by Ns*(M-1) is the sample-variance correction; repeated stationary wall power is removed. One quiet chirp cannot separate arbitrary repeated echoes from noise: code uses a raw-power upper bound and omits RCS.')
-        steps=VGroup(self.prose('For each receiver, subtract its quiet mean waveform.',31),self.prose('Use all selected quiet samples: real squared + imaginary squared.',29)).arrange(DOWN,buff=.35).move_to(UP*1.65)
-        self.play(FadeIn(steps))
-        self.play(Write(self.eq(r'P_{n,b}=\frac{\sum_{k,j}|z^{\rm bg}_{b,k,j}|^2}{N_s(M-1)}',52).move_to(UP*.1)))
-        terms=VGroup(self.prose('z(bg): background-subtracted complex beat signal in the quiet window.',27),self.prose('b: receiver. k: quiet chirp. j: sample within a chirp.',27),self.prose('Ns: samples per chirp. M: intact quiet chirps (at least two).',27),self.prose('M - 1 corrects for estimating the quiet mean from those chirps.',27)).arrange(DOWN,buff=.27).move_to(DOWN*2.05)
-        self.play(FadeIn(terms));self.wait(1)
+        image=ImageMobject(str(Path(__file__).parent/'assets/quiet_noise_example.png')).scale_to_fit_width(11.7).move_to(UP*1.75)
+        self.play(FadeIn(image))
+        self.play(FadeIn(self.prose('Use the blue Background window, before decoding or FFT.',25,BLUE).move_to(ORIGIN)))
+        formula=MathTex(r'P_{n,b}=',r'\frac{\sum_{k,j}|z^{\rm bg}_{b,k,j}|^2}{N_s(M-1)}',font_size=42,color=FG).move_to(DOWN*1.1)
+        self.play(Write(formula))
+        noise_arrow=self.callout(formula[1],'Squared magnitude of the residual voltage',[-3.8,-2.55,0],ORANGE)
+        noise_arrow[1].put_start_and_end_on(noise_arrow[1].get_start(),formula[1].get_corner(UL)+RIGHT*.2+DOWN*.1)
+        self.play(FadeIn(self.texrow(r'$k$: quiet chirp; $j$: sample; $b$: receiver.',25).move_to([3.3,-2.5,0])))
+        self.play(FadeIn(self.texrow(r'$N_s$: samples per chirp; $M$: intact background chirps.',25).move_to(DOWN*3.15)))
+        self.play(FadeIn(self.texrow(r'$M-1$ corrects for the mean fitted from these same chirps.',22).move_to(DOWN*3.5)))
+        self.wait(1)
 
         self.start('The matched filter also reduces noise',
             'Assume temporally white residual noise. Unnormalized matched sum has noise energy Pn*sum|q|^2, which is the denominator in the next slide. For a phase-only template, |q|=1 and averaging N samples has variance Pn/N. Full complex sample-rate bandwidth fs scales to analysis bandwidth 1/Tcoh. Acquired sample time excludes idle/frame gaps.')
         self.play(FadeIn(self.prose('For the matched sum, expected noise power is',30).move_to(UP*2.1)))
         self.play(Write(self.eq(r'P_{\rm noise,sum}=P_{n,b}\sum_j|q_j|^2',46).move_to(UP*1.2)))
-        self.play(FadeIn(self.prose('For a phase-only template averaged over N samples,',30).move_to(UP*.25)))
-        self.play(Write(self.eq(r'P_{\rm noise,average}=\frac{P_{n,b}}{N}=\frac{P_{n,b}}{f_sT_{\rm coh}}',46).move_to(DOWN*.7)))
-        terms=VGroup(self.prose('N: acquired samples used in the coherent integration.',28),self.prose('fs: sample rate. T(coh) = N / fs: acquired coherent time.',28),self.prose('Noise bandwidth changes from fs to 1 / T(coh).',28)).arrange(DOWN,buff=.3).move_to(DOWN*2.3)
+        self.play(FadeIn(self.texrow(r'For a phase-only template averaged over $N$ samples,',30).move_to(UP*.25)))
+        self.play(Write(self.eq(r'P_{\rm noise,average}=\frac{P_{n,b}}{N}=\frac{P_{n,b}}{f_sT_{\rm coh}}',42).move_to(DOWN*.45)))
+        terms=VGroup(self.texrow(r'$N$: acquired samples used in coherent integration.',28),self.eq(r'f_s:\ \text{sample rate};\quad T_{\rm coh}=\frac{N}{f_s}:\ \text{acquired coherent time}',32),self.eq(r'\text{Noise bandwidth: }f_s\longrightarrow\frac{1}{T_{\rm coh}}',32)).arrange(DOWN,buff=.32).move_to(DOWN*2.45)
         self.play(FadeIn(terms));self.wait(1)
 
         self.start('Then add the four matched powers',
@@ -298,38 +368,47 @@ class RadialFFTSearch(Slide):
         terms=VGroup(self.eq(r'|s_b|^2:\ \text{matched power from receiver }b',32),self.eq(r'P_{n,b}:\ \text{background noise power per sample, receiver }b',32),self.eq(r'\sum_j|q_j|^2:\ \text{energy of the predicted template}',32),self.eq(r'\rho:\ \text{matched power divided by expected noise power}',32)).arrange(DOWN,buff=.35).move_to(DOWN*1.95)
         self.play(FadeIn(terms));self.wait(1)
 
-        self.start('Each map pixel keeps the strongest match',
-            'Mrv is MAX over acceleration at fixed r0/v0; Mva is MAX over range at fixed v0/a0. rho is the three-dimensional bank score. The map color is its monotonic display-SNR transform; ties can result from the zero dB floor.')
-        first=VGroup(self.eq(r'M_{rv}(r_0,v_0)=\max_{a_0}\rho(r_0,v_0,a_0)',43),self.prose('Range versus velocity: keep the best acceleration at each pixel.',29)).arrange(DOWN,buff=.4).move_to(UP*1.15)
-        second=VGroup(self.eq(r'M_{va}(v_0,a_0)=\max_{r_0}\rho(r_0,v_0,a_0)',43),self.prose('Velocity versus acceleration: keep the best range at each pixel.',29)).arrange(DOWN,buff=.4).move_to(DOWN*1.05)
-        self.play(FadeIn(first));self.play(FadeIn(second))
-        self.play(FadeIn(self.prose('M is the map score. MAX selects the largest score.',29,MUTED).move_to(DOWN*2.8)))
+        self.start('Search the 3D array; project it only for display',
+            'The discrete search maximum is argmax over the full three-dimensional range velocity acceleration bank. The RV and VA maps are only maximum projections for visualization and do not define separate searches. Candidate checks and continuous GLS refine the discrete search result.')
+        self.play(Write(self.eq(r'(r_*,v_*,a_*)=\operatorname*{arg\,max}_{r_0,v_0,a_0}\rho(r_0,v_0,a_0)',43).move_to(UP*2)))
+        layers=VGroup()
+        for k in range(3):
+            layer=VGroup(*[Rectangle(width=.42,height=.42,stroke_color=MUTED,fill_color=BLUE,fill_opacity=.15).move_to([-4.8+i*.48+k*.15,.9-j*.48+k*.15,0]) for j in range(3) for i in range(4)])
+            layers.add(layer)
+        self.play(LaggedStart(*[FadeIn(l) for l in layers],lag_ratio=.3))
+        peak=layers[1][6];self.play(peak.animate.set_fill(ORANGE,opacity=1),Indicate(peak,color=ORANGE))
+        self.play(FadeIn(self.prose('Largest voxel in the full 3D bank',23,ORANGE).move_to([-3.9,-1.1,0])))
+        maps=VGroup(self.eq(r'M_{rv}(r_0,v_0)=\max_{a_0}\rho(r_0,v_0,a_0)',36),
+            self.eq(r'M_{va}(v_0,a_0)=\max_{r_0}\rho(r_0,v_0,a_0)',36)).arrange(DOWN,buff=.6).move_to([2.8,.1,0])
+        self.play(GrowArrow(Arrow([-1.6,.2,0],[-.5,.2,0],color=BLUE)),FadeIn(maps))
+        self.play(FadeIn(self.prose('Two 2D pictures of that same array—not two new searches.',27,BLUE).move_to(DOWN*2.15)))
+        self.play(FadeIn(self.prose('The selected 3D candidate starts the joint motion / receiver-amplitude fit.',25).move_to(DOWN*2.85)))
         self.wait(1)
 
         beamforming_slides(self)
 
         self.start('From matched SNR to received signal power',
-            'Thermal calibration assumption Tsys=9000 K; white noise across complex sample-rate bandwidth. rho is observed power/noise, so signal SNR S=max(rho-1,0). B=1/Tcoh with acquired sample time. Do not invert the GUI zero-dB display floor. Beam received-power estimate additionally divides by assumed ideal four-RX gain.')
+            'Thermal calibration assumption Tsys=9000 K; white noise across complex sample-rate bandwidth. rho is observed power/noise, so signal SNR S=max(rho-1,0). B=1/Tcoh with acquired sample time. Do not invert the GUI zero-dB display floor. Joint beam SNR removes fitted-amplitude noise bias nu, and received power divides by covariance-calibrated combining gain.')
         self.content([
-            r'S=\max(\rho-1,0),\qquad B=\frac{1}{T_{\rm coh}}',
+            r'S_{\rm RX}=\max(\rho-1,0),\quad S_{\rm beam}=\max(\rho_{\rm GLS}-\nu,0),\quad B=\frac{1}{T_{\rm coh}}',
             r'P_r=S k_B T_{\rm sys} B=\frac{S k_B T_{\rm sys}}{T_{\rm coh}}',
         ],[
-            'S: signal-to-noise power ratio in linear units, after subtracting expected noise.',
-            'B: analysis noise bandwidth. T(coh): acquired integration time.',
-            'kB: Boltzmann constant. T(sys): assumed system noise temperature, 9000 K.',
-            'Pr: received signal power in watts. Use the underlying ratio, not the display floor.',
+            r'$S$: linear signal-to-noise power ratio, after subtracting expected noise.',
+            r'$B$: noise bandwidth; $T_{\mathrm{coh}}$: acquired integration time.',
+            r'$k_B$: Boltzmann constant; $T_{\mathrm{sys}}$: assumed noise temperature, $9000\ \mathrm{K}$.',
+            r'$P_r$: received power in watts; use the underlying ratio before the display floor.',
         ])
 
         self.start('Use distance to convert received power to radar cross section',
-            'Monostatic radar equation with linear gains and total linear loss L. Assumes far-field monostatic geometry and stated transmitter/receiver calibration. Effective R is fitted range or explicit override. Individual RX results use own noise and matched power; beam uses ideal four-channel gain, approximate with unequal/correlated RX.')
+            'Monostatic radar equation with linear gains and total linear loss L. Assumes far-field monostatic geometry and stated transmitter/receiver calibration. Effective R is fitted range or explicit override. Individual RX results use own noise and matched power; beam uses the implemented noise-weighted combining gain with equal calibrated antenna-response assumptions.')
         self.content([
             r'\sigma=\frac{P_r(4\pi)^3R^4 L}{P_tG_tG_r\lambda^2}',
         ],[
-            'σ: radar cross section, in square metres. R: radar-to-projectile distance.',
-            'Pt: transmitted power. Gt and Gr: transmit and receive gains, in linear units.',
-            'λ: radar wavelength. L: total loss factor (1 means no loss).',
+            r'$\sigma$: radar cross section in $\mathrm{m^2}$; $R$: radar-to-projectile distance.',
+            r'$P_t$: transmitted power; $G_t,G_r$: linear transmit and receive gains.',
+            r'$\lambda$: wavelength; $L$: total loss factor ($1$ means no loss).',
             'Compute separately for each receiver, using its own SNR and noise estimate.',
-            'For four-RX beamforming, divide out the assumed ideal gain of four.',
+            'For the beam, divide by the fitted covariance-calibrated combining gain.',
             'Absolute RCS depends on the assumed temperature, gains, losses and distance.',
         ])
 
@@ -337,21 +416,22 @@ class RadialFFTSearch(Slide):
             'Mie theory gives the electromagnetic scattering of an ideal perfectly conducting sphere. Compare predicted monostatic cross section with inferred cross section; all crossings inside the user diameter bounds are reported. Multiple diameters can produce one cross section. Same inversion per RX and beam result. Synthetic 77GHz illustration; not a measured projectile.')
         self.play(FadeIn(self.demo_image('mie_diameter',11.8).move_to(UP*.25)))
         self.play(FadeIn(self.prose('Mie theory predicts RCS versus diameter; each crossing is a possible diameter.',27).move_to(DOWN*2.55)))
-        self.play(FadeIn(self.prose('Use diameter bounds or other evidence to choose among multiple solutions.',26,MUTED).move_to(DOWN*3.1)))
+        self.play(FadeIn(self.texrow(r'Candidate envelope: $0.949$–$2.277\ \mathrm{mm}$; keep all three roots.',26).move_to(DOWN*3.1)))
         self.wait(1)
 
         self.start('Select background. Select analysis. Press Play.',
-            'GUI schematic, not a screenshot. Blue and purple windows move and resize. Drag empty space to zoom; Reset full view restores the recording. Moving yellow coherent train analyzes that train. Quiet mean and residual noise estimated independently per RX from all intact selected background samples. B=1/Tcoh, Tcoh=N/fs. WebGPU has CPU fallback.')
-        panel=Rectangle(width=12,height=2.5,color=MUTED).shift(UP*.5)
-        bg=Rectangle(width=2,height=2.5,color=BLUE,fill_color=BLUE,fill_opacity=.14).move_to([-3.7,.5,0])
-        scan=Rectangle(width=5.4,height=2.5,color=PURPLE,fill_color=PURPLE,fill_opacity=.10).move_to([1.4,.5,0])
-        coh=Rectangle(width=.45,height=2.5,color=ORANGE,fill_color=ORANGE,fill_opacity=.2).move_to([-.7,.5,0])
-        self.play(FadeIn(panel))
-        self.play(FadeIn(bg),FadeIn(self.prose('1. Background',30,BLUE).move_to([-3.7,2.3,0])))
-        self.play(FadeIn(scan),FadeIn(coh),FadeIn(self.prose('2. Analysis',30,PURPLE).move_to([1.4,2.3,0])))
-        play=RoundedRectangle(width=2.2,height=.7,corner_radius=.1,color=BLUE).move_to([0,-1.5,0]);play.add(self.prose('3. Play',32,BLUE).move_to(play))
-        self.play(FadeIn(play))
-        self.play(FadeIn(self.prose('Move or resize the coloured windows to choose the intervals.',29).move_to(DOWN*2.6)))
+            'Real GUI screenshot supplied by Juha Vierinen. Blue Background selects quiet chirps used for mean and residual noise estimation. Purple Analyze selects the train scan interval. Yellow coherent integration marker is the current acquired chirp train. Press Play to analyze successive intact trains. Drag windows to move, edges to resize; empty-space drag zooms; Reset full view restores the viewport. Download HDF5 exports completed estimates and current bank.')
+        image=ImageMobject(str(Path(__file__).parent/'assets/lab_gui_example.png')).scale_to_fit_width(11.1).move_to(DOWN*.2)
+        self.play(FadeIn(image))
+        def region(x,y,width,height,color):
+            return Rectangle(width=image.width*width,height=image.height*height,stroke_color=color,stroke_width=5).move_to(image.get_corner(DL)+RIGHT*image.width*x+UP*image.height*y)
+        background=region(.492,.32,.082,.395,BLUE)
+        analysis=region(.66,.32,.235,.395,PURPLE)
+        play=region(.66,.915,.06,.072,ORANGE)
+        caption=self.prose('1. Blue Background: quiet chirps for mean removal and noise.',25,BLUE).move_to(DOWN*3.15)
+        self.play(Create(background),FadeIn(caption));self.wait(.7)
+        self.play(Create(analysis),Transform(caption,self.prose('2. Purple Analyze: choose the interval containing the target.',25,PURPLE).move_to(DOWN*3.15)));self.wait(.7)
+        self.play(Create(play),Transform(caption,self.prose('3. Press Play. Yellow marks the chirp train being integrated.',25,ORANGE).move_to(DOWN*3.15)))
         self.wait(1)
 
         self.start('Watch the results appear',

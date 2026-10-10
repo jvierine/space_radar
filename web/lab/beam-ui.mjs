@@ -1,22 +1,17 @@
-import {restoreControls} from './gui-state.mjs?v=20261009zeroaxes15';
-import {Heatmap} from './plots.mjs?v=20261009zeroaxes15';
-import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261009zeroaxes15';
+import {restoreControls} from './gui-state.mjs?v=20261010loss2db17';
+import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261010loss2db17';
 const section=document.createElement('section');
 section.className='card';
 section.innerHTML=`<h2>Four-antenna coherent beamforming</h2>
-<p>Equal-amplitude phase search + Nelder–Mead; RX0 phase fixed at 0°.</p>
-<div class="fields"><label>Phase steps per receiver<input id="beamSteps" type="number" min="2" max="32" step="1" value="10"></label><button id="beamSearch" disabled>Search 1,000 phase combinations</button></div>
+<p>Joint noise-weighted least squares: trajectory and four complex RX amplitudes. The same fit supplies the coherent beam weights.</p>
+<div class="fields"><input id="beamSteps" type="hidden" value="10"><button id="beamSearch" disabled>Recalculate fitted beam</button></div>
 <p id="beamStatus" role="status">Run a trajectory fit to compute beamforming and RCS.</p>
 <div id="beamResults" hidden><div id="beamTable"></div>
 <p id="beamTotal"></p>
 <details><summary>Individual receiver signal and quiet matched powers</summary><div id="beamDiagnostics" class="beam-growth"></div><p class="note">Signal: independent RX mean removal. Noise: raw quiet I/Q.</p></details>
 <h3>Gain from adding receivers</h3><div id="beamGrowth" class="beam-growth"></div>
-<p class="note">Added gain uses separately optimized subsets. Ideal increment = added RX’s linear SNR. Negative = reduced gain; &gt;100% can result from correlated noise.</p>
-<div class="beam-marginals">
-<div><h3>RX1 × RX2 · MAX over RX3</h3><div id="beamPlot12" class="heatmap compact"></div></div>
-<div><h3>RX1 × RX3 · MAX over RX2</h3><div id="beamPlot13" class="heatmap compact"></div></div>
-<div><h3>RX2 × RX3 · MAX over RX1</h3><div id="beamPlot23" class="heatmap compact"></div></div>
-</div></div>
+<p class="note">Each subset uses its background covariance. Fitted-amplitude noise power is subtracted; trajectory search selection can still bias weak peaks.</p>
+<div class="beam-marginals" hidden></div></div>
 `;
 document.getElementById('matchSettings').after(section);
 const rcsSection=document.createElement('div');
@@ -31,13 +26,11 @@ rcsSection.innerHTML=`<h3>RCS and equivalent metallic-sphere diameter</h3>
 <label>Diameter minimum (mm)<input id="rcsDMin" type="number" min="0.001" value="0.01" step="0.01"></label>
 <label>Diameter maximum (mm)<input id="rcsDMax" type="number" max="100" value="20" step="0.1"></label>
 </div><p id="rcsSummary" class="note"></p><div id="rcsTable" class="beam-growth"></div>
-<p class="note">Thermal-noise estimate with ideal 4× RX gain. PEC Mie inversion; multiple diameters are alternative solutions.</p>`;
+<p class="note">Thermal-noise estimate with covariance-calibrated combining gain, assuming equal calibrated antenna responses. PEC Mie inversion; multiple diameters are alternative solutions. Min–max is a candidate envelope within the selected bounds, not a confidence interval or a continuous set of solutions.</p>`;
 section.querySelector('#beamResults').insertBefore(rcsSection,section.querySelector('.beam-marginals'));
 restoreControls(section);
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
-const pairs=[[1,2,3],[1,3,2],[2,3,1]];
-const maps=pairs.map(([x,y])=>new Heatmap(`beamPlot${x}${y}`));
-const worker=new Worker('beam-worker.mjs?v=20261009zeroaxes15',{type:'module'});
+const worker=new Worker('beam-worker.mjs?v=20261010loss2db17',{type:'module'});
 let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null,pendingAutomatic=false;
 function renderRcs() {
  if(!lastBeam || !current)return;
@@ -50,13 +43,13 @@ function renderRcs() {
  if(!Object.values(assumptions).every(Number.isFinite) || assumptions.temperature<=0 || assumptions.range<=0 || !(minimum>=1e-6 && maximum>=minimum && maximum<=.1)) {summary.textContent='Enter positive temperature/range and diameter bounds from 0.001 to 100 mm.';table.innerHTML='';return;}
  summary.textContent=`${(frequency/1e9).toFixed(3)} GHz · T_coh ${(assumptions.T_coh*1e6).toFixed(2)} µs · distance ${assumptions.range.toFixed(4)} m · assumed TX/gains.`;
  const scores=[...lastBeam.single,lastBeam.peak];
- table.innerHTML=`<table><thead><tr><th>Receiver / combination</th><th>Estimated RCS (m²)</th><th>RCS (dBsm)</th><th>Equivalent PEC diameter(s) (mm)</th></tr></thead><tbody>${scores.map((score,i)=>{
-  const sigma=estimateRcs(score,assumptions,i===4?4:1),roots=diameterRoots(sigma,frequency,minimum,maximum);
-  return `<tr><td>${i<4?'RX'+i:'Four-RX beamformed'}</td><td>${sigma.toExponential(3)}</td><td>${sigma>0?(10*Math.log10(sigma)).toFixed(2):'—'}</td><td>${roots.length?roots.map(d=>(d*1000).toFixed(3)).join(', '):sigma>0?'No root within bounds':'Below noise floor'}</td></tr>`;
+ table.innerHTML=`<table><thead><tr><th>Receiver / combination</th><th>Estimated RCS (m²)</th><th>RCS (dBsm)</th><th>Candidate envelope (mm)</th><th>Equivalent PEC diameter(s) (mm)</th></tr></thead><tbody>${scores.map((score,i)=>{
+  const sigma=estimateRcs(score,assumptions,i===4?lastBeam.rcsGain:1),roots=diameterRoots(sigma,frequency,minimum,maximum);
+  return `<tr><td>${i<4?'RX'+i:'Four-RX beamformed'}</td><td>${sigma.toExponential(3)}</td><td>${sigma>0?(10*Math.log10(sigma)).toFixed(2):'—'}</td><td>${roots.length?`${(1000*Math.min(...roots)).toFixed(3)}–${(1000*Math.max(...roots)).toFixed(3)}`:'—'}</td><td>${roots.length?roots.map(d=>(d*1000).toFixed(3)).join(', '):sigma>0?'No root within bounds':'Below noise floor'}</td></tr>`;
  }).join('')}</tbody></table>`;
 }
 for(const input of rcsSection.querySelectorAll('input'))input.onchange=renderRcs;
-const refresh=()=>{button.disabled=!current||mainBusy||beamBusy;steps.disabled=mainBusy||beamBusy;button.textContent=`Search ${(Number(steps.value)**3).toLocaleString()} phase combinations`;};
+const refresh=()=>{button.disabled=!current||mainBusy||beamBusy;steps.disabled=mainBusy||beamBusy;button.textContent="Recalculate fitted beam";};
 steps.oninput=refresh;
 window.addEventListener('fmcw-match',e=>{id++;current=e.detail;beamBusy=false;pendingAutomatic=true;results.hidden=true;status.textContent=`Ready for ${current.match.pulses} chirps, ${current.match.start}–${current.match.start+current.match.pulses-1}.`;refresh();if(current.match.beam){pendingAutomatic=false;worker.onmessage({data:{id,type:"result",result:current.match.beam}});}else if(!mainBusy)startBeam();});
 window.addEventListener('fmcw-invalidated',()=>{id++;current=null;beamBusy=false;pendingAutomatic=false;results.hidden=true;status.textContent='Run a trajectory fit to compute beamforming and RCS.';refresh();});
@@ -78,20 +71,14 @@ worker.onmessage=({data:m})=>{
  lastBeam=r;
  const fit=current.match;
  section.querySelector('#rcsRange').value=(fit.model==='radial-quadratic'?fit.best[0]:Math.hypot(fit.best[2]*fit.midpoint-fit.best[0],fit.best[1])).toFixed(6);
- status.textContent=`T_coh ${(r.T_coh*1e6).toFixed(2)} µs · Analysis bandwidth ${(r.analysisBandwidth/1000).toFixed(2)} kHz · RX phases: ${r.phases.map(p=>(p*180/Math.PI).toFixed(1)+'°').join(', ')} · grid ${snrDb(r.gridPeak).toFixed(2)} → refined ${peak.toFixed(2)} dB${r.refinement.converged?'':' · refinement limit'}${r.noiseCalibrated===false?' · single-chirp noise upper bound':''}`;
- section.querySelector('#beamTable').innerHTML=`<table><thead><tr><th>Receiver / combination</th><th>SNR in analysis bandwidth (dB)</th></tr></thead><tbody>${single.map((v,i)=>`<tr><td>RX${i}</td><td>${v.toFixed(2)}</td></tr>`).join('')}<tr><td>Four-RX phase grid peak</td><td>${snrDb(r.gridPeak).toFixed(2)}</td></tr><tr><td>Nelder–Mead refined four-RX phases</td><td>${peak.toFixed(2)}</td></tr></tbody></table>`;
+ status.textContent=`T_coh ${(r.T_coh*1e6).toFixed(2)} µs · Analysis bandwidth ${(r.analysisBandwidth/1000).toFixed(2)} kHz · Fitted RX phases relative to RX0: ${r.echoPhases.map(p=>(p*180/Math.PI).toFixed(1)+'°').join(', ')}${r.noiseCalibrated===false?' · single-chirp noise upper bound':''}`;
+ section.querySelector('#beamTable').innerHTML=`<table><thead><tr><th>Receiver / combination</th><th>SNR in analysis bandwidth (dB)</th></tr></thead><tbody>${single.map((v,i)=>`<tr><td>RX${i}</td><td>${v.toFixed(2)}</td></tr>`).join('')}<tr><td>Joint noise-weighted four-RX fit</td><td>${peak.toFixed(2)}</td></tr></tbody></table>`;
  const format=(v,d=2)=>Number.isFinite(v)?v.toFixed(d):'—';
  section.querySelector('#beamDiagnostics').innerHTML=`<table><thead><tr><th>Receiver</th><th>Background noise power (ADC²)</th><th>Observed power in analysis bandwidth (ADC²)</th><th>Noise in analysis bandwidth (ADC²)</th><th>Channel SNR (dB)</th></tr></thead><tbody>${r.channelPower.map((p,i)=>`<tr><td>RX${i}</td><td>${r.rawNoisePower?.[i]?.toExponential(3)??'—'}</td><td>${r.analysisObservedPower?.[i]?.toExponential(3)??'—'}</td><td>${r.analysisNoisePower?.[i]?.toExponential(3)??'—'}</td><td>${format(snrDb(r.single[i]))}</td></tr>`).join('')}</tbody></table>`;
- section.querySelector('#beamTotal').textContent=`Total gain: ${format(db(r.total.gain))} dB · ${format(r.total.percentIdeal,1)}% of ideal 6.02 dB. Baseline: ${format(db(r.total.singleAverage))} dB (four-RX linear average).`;
- section.querySelector('#beamGrowth').innerHTML=`<table><thead><tr><th>Receivers</th><th>SNR (dB)</th><th>Added gain (dB)</th><th>Ideal added gain (dB)</th><th>% of ideal increment</th></tr></thead><tbody>${r.growth.map(g=>`<tr><td>${g.count===1?'RX0':`RX0–RX${g.count-1} (+RX${g.count-1})`}</td><td>${format(snrDb(g.score))}</td><td>${g.count>1?format(db(g.gain)):'—'}</td><td>${g.count>1?format(db(g.idealGain)):'—'}</td><td>${g.count>1?format(g.percentIdeal,1):'—'}</td></tr>`).join('')}</tbody></table>`;
+ section.querySelector('#beamTotal').textContent=`GLS matched score ${format(r.glsScore)} · fitted-amplitude noise contribution ${format(r.fittedNoiseBias)} · covariance ridge ${r.regularization} · calibration gain ${format(r.rcsGain)}. Complex amplitudes and combining weights are solved analytically at the refined trajectory.`;
+ section.querySelector('#beamGrowth').innerHTML=`<table><thead><tr><th>Receivers</th><th>Fitted signal SNR (dB)</th></tr></thead><tbody>${r.growth.map(g=>`<tr><td>RX0–RX${g.count-1}</td><td>${format(snrDb(g.score))}</td></tr>`).join('')}</tbody></table>`;
  results.hidden=false;
  renderRcs();
- const step=360/r.steps;
- const lo=0;
- maps.forEach((map,i)=>{
-  const [x,y,other]=pairs[i];
-  map.resetZoom();
-  map.set(r.projections[i],r.steps,r.steps,{x0:-step/2,x1:360-step/2,y0:-step/2,y1:360-step/2,xLabel:`RX${x} phase (°; modulo 360)`,yLabel:`RX${y} phase (°; modulo 360)`,topLabel:`MAX over RX${other}`,lo,hi:snrDb(r.gridPeak),kind:1,colorDecimals:2,colorLabel:"SNR (dB)",marker:{column:r.indices[x-1],row:r.indices[y-1]}});
- });
+
 };
 refresh();

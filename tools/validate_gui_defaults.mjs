@@ -6,3 +6,11 @@ assert.deepEqual(initialState.background,{start:3633,stop:3692});assert.deepEqua
 assert.deepEqual(initialState.view,{start:3369,stop:3957});assert.equal(initialState.fit,true);
 const shared={version:1,controls:{pulses:'16'}};assert.deepEqual(decodeState(encodeState(location.href,shared)),shared);
 console.log('PASS: requested default GUI state; explicit shared state overrides it');
+assert.equal(defaultState.controls.processingLossDb,'2');
+assert.ok(Math.abs(Number(defaultState.controls.phaseLoss)/100-(1-10**(-2/10)))<1e-12);
+const inputs=[{id:'processingLossDb',tagName:'INPUT',type:'number',value:'2'},{id:'phaseLoss',tagName:'INPUT',type:'hidden',value:'36.90426555198067'}];
+globalThis.location={href:encodeState(location.href,{controls:{phaseLoss:'5'}})};
+const legacy=await import('../web/lab/gui-state.mjs?legacy-loss-test');
+legacy.restoreControls({querySelectorAll:()=>inputs});
+assert.ok(Math.abs(Number(inputs[0].value)+10*Math.log10(.95))<1e-12);
+console.log('PASS: 2 dB default and backward-compatible percent-loss shared links');

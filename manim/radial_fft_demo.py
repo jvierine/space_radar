@@ -5,7 +5,6 @@ sampling. The GUI uses the full sampled FMCW phase and correction groups.
 Scientific numerical products are HDF5; plot PNGs are generated under media/.
 """
 from pathlib import Path
-import time
 import h5py
 import numpy as np
 import matplotlib
@@ -44,24 +43,13 @@ def generate_demo():
     assert abs(axis[np.argmax(powers[-1])]-velocity)<=abs(axis[1]-axis[0])/2
     err=np.max(abs(powers-direct_powers))
 
-    def fft_search():return abs(np.fft.fft(corrected[-1],n=length)[indices]/n)**2
-    def direct_search():return abs(templates@corrected[-1]/n)**2
-    with threadpool_limits(limits=1):
-        for _ in range(8):fft_search();direct_search()
-        fft_times=[];direct_times=[]
-        for _ in range(101):
-            start=time.perf_counter();direct_search();direct_times.append(time.perf_counter()-start)
-            start=time.perf_counter();fft_search();fft_times.append(time.perf_counter()-start)
-    fft_ms=np.median(fft_times)*1000;direct_ms=np.median(direct_times)*1000
     summary=dict(samples=n,fft_length=length,velocity_bins=len(axis),duration_s=duration,
                  synthetic_rate_hz=rate,wavelength_m=wavelength,velocity_m_s=velocity,
-                 acceleration_m_s2=acceleration,maximum_power_error=err,
-                 cpu_fft_ms=fft_ms,cpu_direct_ms=direct_ms,speedup=direct_ms/fft_ms)
+                 acceleration_m_s2=acceleration,maximum_power_error=err)
     path=root/'assets/radial_fft_demo.h5'
     with h5py.File(path,'w') as f:
         f.attrs.update(summary);f.attrs['generator']='manim/radial_fft_demo.py'
         f.attrs['model']='synthetic uniform-sampling carrier-phase illustration, not full FMCW'
-        f.attrs['benchmark']='NumPy, single BLAS thread, 101 medians; direct phasors precomputed; common correction excluded'
         for name,data in [('time_s',h),('acceleration_phase_rad',phase_a),('voltage',voltage),('corrected_voltage',corrected),('trial_acceleration_m_s2',trials),('velocity_m_s',axis),('fft_matched_power',powers),('direct_matched_power',direct_powers)]:f.create_dataset(name,data=data)
 
     plt.rcParams.update({'font.size':17,'axes.labelsize':18,'axes.titlesize':18,'legend.fontsize':15,'axes.spines.top':False,'axes.spines.right':False,'axes.grid':True,'grid.alpha':.18,'savefig.facecolor':'white'})
@@ -77,11 +65,12 @@ def generate_demo():
     fig,axs=plt.subplots(2,1,figsize=(12.6,4.6),sharex=True,layout='constrained')
     for ax,z,title in zip(axs,[voltage,corrected[-1]],['Before correction: frequency changes with time','After the correct acceleration correction: constant frequency']):
         ax.plot(t,z.real,color=BLUE,lw=1.2,label='Real part');ax.plot(t,z.imag,color=ORANGE,lw=1.2,label='Imaginary part')
-        ax.set(ylabel='Complex voltage\n(relative units)',ylim=(-1.15,1.15),title=title)
+        ax.set(ylim=(-1.15,1.15),title=title)
+    fig.supylabel('Complex voltage (relative units)',fontsize=17)
     axs[0].legend(loc='upper right',ncol=2);axs[-1].set_xlabel('Time from midpoint (microseconds)');finish(fig,'complex_voltage')
 
     fig,ax=plt.subplots(figsize=(12.6,4),layout='constrained')
-    for a,p,col in zip(trials,powers,[GRAY,ORANGE,BLUE]):ax.plot(axis,p,color=col,lw=2,label=f'Trial acceleration = {a/1e6:g} million m/s²')
+    for a,p,col in zip(trials,powers,[GRAY,ORANGE,BLUE]):ax.plot(axis,p,color=col,lw=2,label=rf'Trial acceleration: $a_0={a/1e6:g}\times10^6\,\mathrm{{m/s^2}}$')
     peak=np.argmax(powers[-1]);ax.plot(axis[peak],powers[-1,peak],'o',color=BLUE)
     ax.annotate(f'Peak near {velocity:g} m/s',xy=(axis[peak],powers[-1,peak]),xytext=(405,.83),arrowprops=dict(arrowstyle='->',color=BLUE),color=BLUE)
     ax.set(xlabel='Trial radial velocity (m/s)',ylabel='Matched power (normalized)',xlim=(0,600),ylim=(0,1.12));ax.legend(loc='upper left');finish(fig,'velocity_search')

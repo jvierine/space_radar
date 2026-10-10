@@ -1,6 +1,8 @@
-import {projectReceivers,phaseSearch} from './beamforming.mjs?v=20261009zeroaxes15';
-import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261009zeroaxes15';
-import {runRadial} from './radial-backend.mjs?v=20261009zeroaxes15';
+import {jointBeam} from './joint-beam.mjs';
+import {noiseMetric,fittedNoiseBias} from './noise-metric.mjs';
+import {projectReceivers} from './beamforming.mjs?v=20261010loss2db17';
+import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261010loss2db17';
+import {runRadial} from './radial-backend.mjs?v=20261010loss2db17';
 let wasm,
   meta,
   data,
@@ -117,12 +119,16 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     try{if(wasm.search_noise_power(np,4)<0)throw Error('Invalid raw background noise power');}finally{wasm.release(np,4);}
   } finally {wasm.release(ptr,trains.data.length);}
 
+  const metric=noiseMetric(trains.noiseCovariance),mp=wasm.allocate(metric.precision.length);
+  try{new Float32Array(wasm.memory.buffer,mp,metric.precision.length).set(metric.precision);
+    if(wasm.search_noise_precision(mp,metric.precision.length)<0)throw Error('Invalid receive-noise precision');
+  }finally{wasm.release(mp,metric.precision.length);}
   let automatic = null, cells = null;
   let radialSpec=null,compute={backend:"CPU (Rust/Wasm)",fallbackReason:null};
   if (job.algorithm === "fft") {
     const g=job.grid;
-    total=wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,32000000);
-    if(total<0) throw Error("Invalid radial bounds or more than 32 million r₀ / v₀ / a₀ grid points. Narrow the bounds or increase the phase tolerance.");
+    total=wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,64000000);
+    if(total<0) throw Error("Invalid radial bounds or more than 64 million r₀ / v₀ / a₀ grid points. Narrow the bounds or increase the maximum coherent processing loss (dB).");
     wasm.radial_info();radialSpec=[...copy()];
   }
   let windows = 0;
@@ -138,7 +144,7 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
   if(radialSpec){
     const g=job.grid;
     try{compute=await runRadial({w:wasm,info:radialSpec,backend:job.computeBackend??'auto',
-      begin:()=>wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,32000000),
+      begin:()=>wasm.radial_begin(g.xMin,g.xMax,g.vMin,g.vMax,g.yMin,g.yMax,job.loss/100,64000000),
       cancelled:()=>token!==generation,yieldUI,
       progress:(fraction,backend)=>send('progress',{fraction,pulses,phase:`${phase} · ${backend} · ${total} corrections`,windows})});
     }catch(error){if(token!==generation)return null;throw error;}
@@ -156,7 +162,7 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     await yieldUI();
   }
   if (radialSpec) {
-    send("progress",{fraction:1,pulses,phase:"Verifying radial FFT candidates with the quadratic template"});
+    send("progress",{fraction:1,pulses,phase:"Joint noise-weighted least-squares fit of trajectory and complex RX amplitudes"});
     await yieldUI();if(token!==generation)return null;if(wasm.radial_refine(128)<0) throw Error("No valid positive-range quadratic templates in these bounds.");
   }
   if (automatic) {
@@ -169,6 +175,10 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
   if(automatic){wasm.auto_nodes();nodes=copy();}
   const cubeLength = wasm.matches(),
     packed = copy();
+  const best=[...packed.slice(cubeLength)],jointFitScore=radialSpec?best[3]:null,noiseBias=fittedNoiseBias(metric.precision,trains.noiseCovariance);
+  if(radialSpec)best[3]=1+Math.max(jointFitScore-noiseBias,0);
+  let aliasCandidates=null;
+  if(radialSpec){wasm.radial_candidates();aliasCandidates=copy();}
   wasm.fitted();
   const fit = copy();
   wasm.train_values();
@@ -182,12 +192,12 @@ async function bank(job, pulses, start, token, phase = "search", scan = false) {
     pulses,
     start,
     cube: packed.slice(0, cubeLength),
-    best: [...packed.slice(cubeLength)],
+    best,jointFitScore,fittedAmplitudeNoiseBias:radialSpec?noiseBias:null,covarianceRegularization:metric.regularization,
     fit,
     observed,
     scanResults,
     grid: radialSpec ? {...job.grid,xN:radialSpec[0],yN:radialSpec[1],vN:radialSpec[2]} : job.grid,
-    radialSpec,
+    radialSpec,aliasCandidates,
     model: radialSpec ? "radial-quadratic" : "geometry",
     midpoint: meta.parameters.T_adc+(meta.samples-1)/(2*meta.parameters.fs)+(pulses-1)*job.period/2,
     noiseRange,
@@ -212,7 +222,7 @@ onmessage = async ({ data: msg }) => {
     if (msg.type === "init") {
       meta = msg.meta;
       const result = await WebAssembly.instantiateStreaming(
-        fetch("core.wasm?v=20261009zeroaxes15"),
+        fetch("core.wasm?v=20261010loss2db17"),
         {},
       );
       wasm = result.instance.exports;
@@ -261,7 +271,7 @@ onmessage = async ({ data: msg }) => {
             const p=meta.parameters;
             (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
             const projections=projectReceivers(receivers,copy(),{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses:n,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:msg.noiseStart,noiseStop:msg.noiseStop,conjugated:candidate.best[4]>0,fullBandwidth:true});
-            candidate.beam=phaseSearch(projections.event,projections.noise,msg.beamSteps??10,projections.noiseCovariance);
+            candidate.beam=jointBeam(projections);
             // RCS sampled coherent time is unchanged by receiver phases.
             (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
             const q=copy();let sum=0,energy=0;

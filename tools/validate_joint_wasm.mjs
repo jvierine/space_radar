@@ -1,0 +1,20 @@
+import fs from 'node:fs';import assert from 'node:assert/strict';
+const w=(await WebAssembly.instantiate(fs.readFileSync('web/lab/core.wasm'),{})).instance.exports;
+const put=(a,fn)=>{const p=w.allocate(a.length);new Float32Array(w.memory.buffer,p,a.length).set(a);try{return fn(p,a.length);}finally{w.release(p,a.length);}};
+const read=()=>Array.from(new Float32Array(w.memory.buffer,w.result_ptr(),w.result_len()));
+const n=128,K=8,fsamp=12.5e6,Q=n*K,theta=[1.1,310,480000];
+put(new Float32Array(1000*n*2).fill(1),(p)=>w.load(p,1000,n,125,fsamp,2e-6,25.37e-6,77e9,1e14));
+w.background(125,625);assert.ok(w.prepare_power(750,K,125,625,0)>=0);
+w.radial_template(...theta,K,0);const q=read(),amplitudes=[[1,1],[2,-1],[-1,3],[.5,-.5]],diag=[1,4,9,16];
+const trains=new Float32Array(8*q.length);
+for(let b=0;b<4;b++)for(let j=0;j<Q;j++){const [r,i]=amplitudes[b];trains[b*q.length+2*j]=r*q[2*j]-i*q[2*j+1];trains[b*q.length+2*j+1]=r*q[2*j+1]+i*q[2*j];}
+assert.ok(put(trains,(p,l)=>w.search_receivers(p,l,4,1,0))>=0);
+assert.ok(put(Float32Array.from(diag),(p,l)=>w.search_noise_power(p,l))>=0);
+const precision=new Float32Array(32);for(let b=0;b<4;b++)precision[2*(4*b+b)]=1/diag[b];assert.ok(put(precision,(p,l)=>w.search_noise_precision(p,l))>=0);
+const groups=w.radial_begin(1.09,1.11,306,314,400000,560000,.05,32000000);assert.ok(groups>0);for(let i=0;i<groups;i++)w.radial_batch(i,1);
+assert.ok(w.radial_refine(128)>=0);const len=w.matches(),best=read().slice(len);
+const expected=Q*amplitudes.reduce((v,[r,i],b)=>v+(r*r+i*i)/diag[b],0);
+assert.ok(Math.abs(best[3]/expected-1)<1e-5,`GLS score ${best[3]} expected ${expected}`);
+assert.ok(Math.abs(best[0]-theta[0])<1e-4);assert.ok(Math.abs(best[1]-theta[1])<.1);assert.ok(Math.abs(best[2]-theta[2])<1000);
+w.radial_candidates();assert.ok(w.result_len()>=5);
+console.log('PASS: four-RX Wasm joint GLS score, bounded motion refinement and retained physical candidates',best);

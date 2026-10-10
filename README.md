@@ -36,12 +36,12 @@ follow the trajectory fit. Scan histories use unconnected points.
 | File | Responsibility |
 | --- | --- |
 | [`lab-core/src/lib.rs`](lab-core/src/lib.rs) | Rust DSP engine, complex64 FFT, background subtraction, templates and Wasm API |
-| [`lab-core/src/radial_search.rs`](lab-core/src/radial_search.rs) | Automatic r0/v0/a0 grid, correction groups, sparse FFT bank and exact peak refinement |
+| [`lab-core/src/radial_search.rs`](lab-core/src/radial_search.rs) | Automatic r0/v0/a0 grid, correction groups, sparse FFT bank, sampling-alias branch retention and joint GLS motion refinement |
 | [`web/lab/worker.mjs`](web/lab/worker.mjs) | Loads data, runs searches and incremental analysis scans |
 | [`web/lab/gpu-radial.mjs`](web/lab/gpu-radial.mjs) | WebGPU compute shaders for complex64 FFTs and scoring |
 | [`web/lab/radial-backend.mjs`](web/lab/radial-backend.mjs) | Backend selection, GPU/CPU consistency checks and CPU fallback |
 | [`web/lab/receiver-trains.mjs`](web/lab/receiver-trains.mjs) | Per-RX background residuals, noise powers and receiver covariance |
-| [`web/lab/beamforming.mjs`](web/lab/beamforming.mjs) | Receiver phase grid and Nelder–Mead refinement |
+| [`web/lab/joint-beam.mjs`](web/lab/joint-beam.mjs), [`noise-metric.mjs`](web/lab/noise-metric.mjs) | Analytic complex-amplitude fit and covariance-weighted beamforming; legacy phase-grid routines remain in `beamforming.mjs` for reference |
 | [`web/lab/rcs.mjs`](web/lab/rcs.mjs) | Radar equation, PEC-sphere Mie RCS and diameter inversion |
 | [`web/lab/app.mjs`](web/lab/app.mjs), [`plots.mjs`](web/lab/plots.mjs) | GUI, graphical windows, WebGL colormesh and waveform/history plots |
 | [`web/lab/gui-state.mjs`](web/lab/gui-state.mjs) | Default setup and URL state |
@@ -106,7 +106,7 @@ See [simulator model and units](web/sim/README.md).
 
 | Source | Scene | Content |
 | --- | --- | --- |
-| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **34 slides:** coherent integration, full echo phase alignment, FFT matched-filter implementation, receive-array beamforming, SNR → RCS → Mie diameter, and the GUI |
+| [`manim/radial_fft_search.py`](manim/radial_fft_search.py) | `RadialFFTSearch` | **40 slides:** coherent integration, full echo phase alignment, FFT matched-filter implementation, receive-array beamforming, SNR → RCS → Mie diameter, and the GUI |
 | [`manim/fmcw_space_radar.py`](manim/fmcw_space_radar.py) | `FMCWSpaceRadar` | 47-slide radar lecture, simulations and measured examples |
 | [`manim/radar_equation_noise.py`](manim/radar_equation_noise.py) | `RadarEquationNoise` | Radar equation, thermal noise and coherent integration |
 
@@ -150,3 +150,37 @@ transport, not archival products. Test 63 timing is reconstructed from editable
 assumptions, not measured frame timestamps. RCS/diameter estimates depend on
 system-temperature, power, antenna-gain and beamforming assumptions. A fitted
 trajectory alone does not establish a detection.
+
+The default radial FFT analyzer uses a joint least-squares final step. It fits
+`z_j = q_j(r0,v0,a0) A + n_j`, with one complex amplitude per receiver and
+receive covariance estimated from the mean-subtracted quiet raw beat signal.
+For every motion trial the amplitudes are solved analytically; bounded
+Nelder–Mead adjusts motion using the profiled covariance-weighted residual.
+The same fit supplies beam weights proportional to `C^-1 A`. Noise is assumed
+white across acquired sample times. The beam signal-power estimate removes the
+noise contribution from fitting the complex amplitudes; trajectory search can
+still bias weak peaks. RCS uses actual covariance-calibrated combining gain,
+assuming equal calibrated physical antenna responses.
+
+Distinct range/velocity candidates retain their identity when FFT indices wrap.
+The candidate shortlist includes the strongest representative of every
+sampling-alias branch in the configured bounds. Full-waveform checks can reject
+approximate aliases, but identical acquired waveforms remain ambiguous; bounds
+do not exclude contamination by an echo outside them. Alternative branch checks
+are available beside the fit summary and in the HDF5 export.
+
+Mie diameter results retain all inversion roots and also report their min–max
+envelope within the chosen diameter bounds. This envelope is not a confidence
+interval and does not imply every intermediate diameter is consistent.
+
+Validate the joint fit with `node tools/validate_joint_gls.mjs` and
+`node tools/validate_joint_wasm.mjs`; the latter checks actual four-receiver
+Rust/Wasm trajectory recovery and the analytic weighted score.
+
+At the default 2 dB full coherent processing-loss setting, the 16-chirp bank contains
+28,440,405 nodes. The browser cap is 64 million nodes; candidate selection uses
+a bounded heap rather than allocating an index for every node. GPU storage
+limits may require CPU fallback. A default 32-chirp bank (~512 million nodes)
+still requires narrower bounds or a different storage strategy.
+
+The slide equations and symbol definitions use MathTex or explicit inline TeX math. The least-squares derivation expands the complex residual, identifies the matched inner product, and profiles out the complex amplitude before the trajectory search.
