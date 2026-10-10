@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import {Worker} from 'node:worker_threads';
 const worker=new Worker(new URL('./gpu_worker_host.mjs',import.meta.url),{workerData:{gpu:false}});
-const meta=JSON.parse(fs.readFileSync('web/lab/datasets/test63/metadata.json'));
+const meta=JSON.parse(fs.readFileSync(process.env.FMCW_TEST_METADATA??'web/lab/datasets/test63/metadata.json'));
 if(process.env.FMCW_TEST_DATASET_PATH)meta.basePath=process.env.FMCW_TEST_DATASET_PATH;
 let resolve,reject;let expectedType='background';const points=[];
 const timer=setTimeout(()=>reject(Error('Scan test timeout')),60000);
@@ -12,8 +12,8 @@ worker.on('message',m=>{
  try {
   if(m.type==='error')throw Error(m.message);
   if(m.type==='background'&&expectedType==='background'){
-   expectedType='complete';worker.postMessage({type:'period',period:25.37e-6});
-   worker.postMessage({type:'search',algorithm:'fft',computeBackend:'cpu',start:750,pulses:8,period:25.37e-6,receiver:false,noiseStart:0,noiseStop:125,grid:{xMin:.2,xMax:.4,yMin:5e5,yMax:5e5,vMin:-320,vMax:-320},loss:5,scan:true,scanStart:750,scanStop:762,scanStride:10,beamSteps:3});
+   expectedType='complete';worker.postMessage({type:'period',period:meta.parameters.T_adc+meta.samples/meta.parameters.fs+meta.parameters.T_idle+meta.ramp_tail_us_assumption*1e-6});
+   worker.postMessage({type:'search',algorithm:'fft',computeBackend:'cpu',start:750,pulses:8,period:meta.parameters.T_adc+meta.samples/meta.parameters.fs+meta.parameters.T_idle+meta.ramp_tail_us_assumption*1e-6,receiver:false,noiseStart:0,noiseStop:125,grid:{xMin:.2,xMax:.4,yMin:5e5,yMax:5e5,vMin:-320,vMax:-320},loss:5,scan:true,scanStart:750,scanStop:762,scanStride:10,beamSteps:3});
   }
   if(m.type==='match'&&m.result.scanPoint){
    const r=m.result;points.push(r.start);assert.equal(r.searchReceivers,4);assert.equal(r.beam.single.length,4);assert.equal(r.beam.phases.length,4);assert(Number.isFinite(r.beam.peak));

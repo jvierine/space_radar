@@ -14,11 +14,23 @@ p.add_argument("--id", help="Catalog recording ID; defaults to output folder nam
 p.add_argument("--shot", help="Shot number for the recording label")
 p.add_argument("--ramp-tail-us", type=float, default=0.37)
 p.add_argument("--frame-interval-s", type=float)
+p.add_argument("--frame-start", type=int, default=0)
+p.add_argument("--frame-stop", type=int)
 a = p.parse_args()
 a.output.mkdir(parents=True, exist_ok=True)
-sha = hashlib.sha256(a.source.read_bytes()).hexdigest()
+def digest(path):
+    h = hashlib.sha256()
+    with path.open("rb") as f:
+        for chunk in iter(lambda: f.read(8*1024*1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+sha = digest(a.source)
 with Dataset(a.source, auto_complex=True) as source:
-    raw = np.asarray(source["radar_cube"][0], dtype=np.complex64)
+    source_frames = source["radar_cube"].shape[1]
+    stop = a.frame_stop if a.frame_stop is not None else source_frames
+    if not 0 <= a.frame_start < stop <= source_frames:
+        raise ValueError("Invalid source frame interval")
+    raw = np.asarray(source["radar_cube"][0, a.frame_start:stop], dtype=np.complex64)
     frames, chirps, rx, samples = raw.shape
     scalar = {
         key: float(source[key][:])
@@ -39,13 +51,16 @@ with Dataset(a.source, auto_complex=True) as source:
         total_chirps=frames * chirps,
         recorded_clock=clock,
         clock_timezone="not specified in source",
-        frame_of_interest=int(source["frame_of_interest"][:]),
+        frame_of_interest=max(0, int(source["frame_of_interest"][:])-a.frame_start),
+        source_frame_start=a.frame_start,
+        source_frame_stop=stop,
+        source_total_frames=source_frames,
         parameters=scalar,
-        description=str(source.description),
-        orientation=str(source.orientation),
-        material=str(source.material),
-        diameter_mm=float(source.ball_size_mm),
-        zero_padded_samples=int(source.num_zero_padded_samples),
+        description=str(getattr(source,"description",getattr(source,"summary",""))),
+        orientation=str(getattr(source,"orientation",getattr(source,"comment",""))),
+        material=str(getattr(source,"material","not specified")),
+        diameter_mm=float(source.ball_size_mm) if "ball_size_mm" in source.ncattrs() else float(source["projectile_size"][:]),
+        zero_padded_samples=int(getattr(source,"num_zero_padded_samples",0)),
         ramp_tail_us_assumption=a.ramp_tail_us,
         frame_interval_s=a.frame_interval_s,
         transport=[],
@@ -62,6 +77,9 @@ with Dataset(a.source, auto_complex=True) as source:
         ).hexdigest()
         archive.attrs["recorded_clock"] = clock
         archive.attrs["clock_timezone"] = meta["clock_timezone"]
+        archive.attrs["source_frame_start"] = a.frame_start
+        archive.attrs["source_frame_stop"] = stop
+        archive.attrs["source_total_frames"] = source_frames
         archive.attrs["parameters_json"] = json.dumps(scalar)
     for k in range(rx):
         z = raw[:, :, k, :].reshape(frames * chirps, samples).copy()

@@ -5,6 +5,16 @@
       "id": "test63",
       "label": "Shot 63 \u00b7 2026-07-23",
       "path": "datasets/test63/"
+    },
+    {
+      "id": "shot6606",
+      "label": "Shot 6606 \u00b7 2025-02-24",
+      "path": "datasets/shot6606/"
+    },
+    {
+      "id": "shot6607",
+      "label": "Shot 6607 \u00b7 2025-02-25",
+      "path": "datasets/shot6607/"
     }
   ]
 }

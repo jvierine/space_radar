@@ -111,3 +111,20 @@ Add its ID, shot/date label and path to the catalog only after packaging and
 verifying the recording. Explicit frame timing can be supplied with
 `--frame-interval-s`; `--ramp-tail-us` records the reconstruction assumption.
 Recording arrays remain outside Git.
+
+The hypervelocity records are Shot 6606 (2025-02-24) and Shot 6607
+(2025-02-25), supplied by Pål Ellingsen. Browser inputs retain original
+complex ADC counts for source frames 43–46 and 34–37 respectively, with
+full-source SHA-256 and source frame offsets recorded in metadata/HDF5.
+The header identifies these event excerpts. Reconstructed times retain the
+source frame offset; frame gaps remain unknown unless explicit timing is
+supplied. Velocity defaults span −7 to +7 km/s; no search runs automatically.
+The original recordings remain on the Expansion drive.
+
+For an excerpt, add `--frame-start 43 --frame-stop 47` to the importer command;
+frame-stop is exclusive. The importer supports both Test 63 attributes and
+the earlier hypervelocity files' `projectile_size` variable.
+
+After importing both excerpts, run `conda run -n base python
+tools/configure_hypervelocity_datasets.py` to apply the shot-specific quiet
+windows, display selections and velocity bounds and register both records.

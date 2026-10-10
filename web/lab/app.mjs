@@ -1,10 +1,10 @@
-import {selectDataset,datasetUrl,recordingDefaults} from './datasets.mjs?v=20261010datasets19';
+import {selectDataset,datasetUrl,recordingDefaults} from './datasets.mjs?v=20261010shots20';
 import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261010loss2db17';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261010datasets19';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010datasets19";
+import {initialState,restoreControls,initializeState,saveState,applyRecordingDefaults} from './gui-state.mjs?v=20261010shots20';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010shots20";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261010datasets19", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261010shots20", { type: "module" });
 let catalogReady=false;
 let meta,
   period,
@@ -50,7 +50,7 @@ function assertRange(a, b, label = "chirp") {
 }
 function clock(chirp) {
   const k = Math.round(chirp),
-    frame = Math.floor(k / meta.chirps_per_frame),
+    frame = (meta.source_frame_start??0)+Math.floor(k / meta.chirps_per_frame),
     within = k % meta.chirps_per_frame;
   const elapsed = frame * framePeriod + within * period + meta.parameters.T_adc;
   return elapsed.toFixed(6);
@@ -331,7 +331,7 @@ function trace(msg) {
       (_, j) => (meta.parameters.T_adc + j / meta.parameters.fs) * 1e6,
     ),
     offset = $("traceSub").checked ? 2 * n : 0;
-  const desc = `Global ${msg.chirp} · frame ${Math.floor(msg.chirp / meta.chirps_per_frame)}, chirp ${msg.chirp % meta.chirps_per_frame} · time since file start ${clock(msg.chirp)} s (reconstructed)${msg.valid ? "" : " · FLAGGED PADDING: excluded from filters/spectra"}`;
+  const desc = `Global ${msg.chirp} · source frame ${(meta.source_frame_start??0)+Math.floor(msg.chirp / meta.chirps_per_frame)}, chirp ${msg.chirp % meta.chirps_per_frame} · time since file start ${clock(msg.chirp)} s (reconstructed)${msg.valid ? "" : " · FLAGGED PADDING: excluded from filters/spectra"}`;
   $("chirpInfo").textContent = desc;
   iq.set(
     [
@@ -850,10 +850,11 @@ try {
   meta = await response.json();
   if(meta.id!==entry.id)throw Error("Recording metadata does not match catalog");
   meta.basePath=entry.path;
+  applyRecordingDefaults(meta);
   if(!initialState){Object.assign(state,recordingDefaults(meta));$("chirp").value=state.chirp;$("chirpSlider").value=state.chirp;}
   $("rx").replaceChildren(...Array.from({length:meta.receivers},(_,k)=>new Option(`RX${k}`,String(k))));
   $("record").textContent =
-    `${entry.label} · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX`;
+    `${entry.label} · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX${meta.source_total_frames>meta.frames?` · event excerpt: source frames ${meta.source_frame_start}–${meta.source_frame_stop-1} of ${meta.source_total_frames}`:""}`;
   $("chirpSlider").max = meta.total_chirps - 1;
   $("fftNote").textContent =
     `Complex Hann-window FFT: ${meta.samples} acquired samples, ${2 ** Math.ceil(Math.log2(meta.samples))} FFT points. Fourier resolution ${(meta.parameters.fs / meta.samples / 1000).toFixed(2)} kHz; zero-padded bin spacing ${(meta.parameters.fs / 2 ** Math.ceil(Math.log2(meta.samples)) / 1000).toFixed(2)} kHz. Frequency = range beat + Doppler.`;
@@ -884,7 +885,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261010datasets19',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261010shots20',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};
