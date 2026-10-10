@@ -49,7 +49,7 @@ function attachBeamProfile(candidate,msg,receivers){
 async function channel(receiver) {
   if(streams.has(receiver))return streams.get(receiver);
   const spec=meta.transport[receiver];
-  const response=await fetch('datasets/test63/'+spec.file);
+  const response=await fetch((meta.basePath??'datasets/test63/')+spec.file);
   if(!response.ok)throw Error('Cannot load receiver data');
   const bytes=await response.arrayBuffer();
   if(bytes.byteLength!==spec.bytes)throw Error('Receiver file length mismatch');

@@ -10,6 +10,10 @@ from netCDF4 import Dataset, num2date
 p = argparse.ArgumentParser()
 p.add_argument("source", type=Path)
 p.add_argument("--output", type=Path, default=Path("web/lab/datasets/test63"))
+p.add_argument("--id", help="Catalog recording ID; defaults to output folder name")
+p.add_argument("--shot", help="Shot number for the recording label")
+p.add_argument("--ramp-tail-us", type=float, default=0.37)
+p.add_argument("--frame-interval-s", type=float)
 a = p.parse_args()
 a.output.mkdir(parents=True, exist_ok=True)
 sha = hashlib.sha256(a.source.read_bytes()).hexdigest()
@@ -23,7 +27,9 @@ with Dataset(a.source, auto_complex=True) as source:
     t = source["time"]
     clock = num2date(t[0], t.units, calendar=t.calendar).strftime("%Y-%m-%dT%H:%M:%S")
     meta = dict(
-        id="test63",
+        id=a.id or a.output.name,
+        shot_number=a.shot,
+        label=f"Shot {a.shot} · {clock[:10]}" if a.shot else clock[:10],
         filename=a.source.name,
         source_sha256=sha,
         frames=frames,
@@ -40,8 +46,8 @@ with Dataset(a.source, auto_complex=True) as source:
         material=str(source.material),
         diameter_mm=float(source.ball_size_mm),
         zero_padded_samples=int(source.num_zero_padded_samples),
-        ramp_tail_us_assumption=0.37,
-        frame_interval_s=None,
+        ramp_tail_us_assumption=a.ramp_tail_us,
+        frame_interval_s=a.frame_interval_s,
         transport=[],
     )
     with h5py.File(a.output / "recording.h5", "w") as archive:

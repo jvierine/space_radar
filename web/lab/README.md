@@ -92,3 +92,22 @@ receive covariance. Color is excess matched SNR in dB, floored at 0 dB;
 selection of the peak and its weights can bias noisy estimates. Gaps remain
 blank. The current range profile and all profile powers, noise powers, scores,
 weights and motion parameters are included in the HDF5 download.
+
+## Recording selector
+
+The recording dropdown reads `dataset-catalog.json`, with labels such as
+`Shot 63 · 2026-07-23`. Each entry has an ID and a `datasets/<id>/` path.
+Switching records reloads the workers and clears the old analysis and plot
+state. Shared links retain the selected recording through `?dataset=<id>`.
+Sampling rate, chirp dimensions and timing come from that recording's metadata.
+
+Package another NetCDF recording using:
+
+```sh
+conda run -n base python tools/prepare_lab_data.py /path/to/shot.nc --output web/lab/datasets/shot99 --id shot99 --shot 99
+```
+
+Add its ID, shot/date label and path to the catalog only after packaging and
+verifying the recording. Explicit frame timing can be supplied with
+`--frame-interval-s`; `--ramp-tail-us` records the reconstruction assumption.
+Recording arrays remain outside Git.

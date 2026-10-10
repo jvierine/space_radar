@@ -1,9 +1,11 @@
+import {selectDataset,datasetUrl,recordingDefaults} from './datasets.mjs?v=20261010datasets19';
 import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261010loss2db17';
-import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261010loss2db17';
+import {initialState,restoreControls,initializeState,saveState} from './gui-state.mjs?v=20261010datasets19';
 import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010adaptive16";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261010range18", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261010datasets19", { type: "module" });
+let catalogReady=false;
 let meta,
   period,
   framePeriod,
@@ -28,6 +30,7 @@ function setBusy(value) {
     ".settings input,.settings select,.settings button,#matchSettings input,#matchSettings select,#search,#scan",
   ))
     el.disabled = value || !loaded;
+  $("dataset").disabled=value||!catalogReady;
   $("cancel").disabled = !value;
   $("download").disabled=value||!analysisComplete;
   for (const id of ["xN", "yN", "vN"]) $(id).disabled = value || !loaded || $("algorithm").value === "fft";
@@ -311,7 +314,7 @@ function applyTiming() {
   const previous = period;
   const tail = Number(initialState?.controls?.tail ?? meta.ramp_tail_us_assumption) * 1e-6;
   period = Number(initialState?.timing?.period ?? (meta.parameters.T_adc + meta.samples / meta.parameters.fs + meta.parameters.T_idle + tail));
-  framePeriod = Number(initialState?.timing?.framePeriod ?? (initialState?.controls?.framePeriod ? Number(initialState.controls.framePeriod)/1000 : meta.chirps_per_frame*period));
+  framePeriod = Number(initialState?.timing?.framePeriod ?? (initialState?.controls?.framePeriod ? Number(initialState.controls.framePeriod)/1000 : (meta.frame_interval_s??meta.chirps_per_frame*period)));
   if(!Number.isFinite(period)||period<=0||!Number.isFinite(framePeriod)||framePeriod+1e-12<meta.chirps_per_frame*period)throw Error('Invalid reconstructed timing.');
   if(previous!==undefined&&previous!==period)invalidate();
   worker.postMessage({type:'period',period});
@@ -834,13 +837,23 @@ $("algorithm").onchange = () => {
 restoreControls();methodUI();restoreControls();activeMethod=$("algorithm").value;
 try {
   setBusy(false);
-  const response = await fetch("datasets/test63/metadata.json", {
+  const catalogResponse=await fetch("dataset-catalog.json",{cache:"no-store"});
+  if(!catalogResponse.ok)throw Error("Recording catalog unavailable");
+  const catalog=await catalogResponse.json(),entry=selectDataset(catalog,location.href);
+  $("dataset").replaceChildren(...catalog.datasets.map(d=>new Option(d.label,d.id)));
+  $("dataset").value=entry.id;catalogReady=true;$("dataset").disabled=false;
+  $("dataset").onchange=()=>{location.assign(datasetUrl(location.href,$("dataset").value));};
+  const response = await fetch(entry.path+"metadata.json", {
     cache: "no-store",
   });
   if (!response.ok) throw Error("Recording metadata unavailable");
   meta = await response.json();
+  if(meta.id!==entry.id)throw Error("Recording metadata does not match catalog");
+  meta.basePath=entry.path;
+  if(!initialState){Object.assign(state,recordingDefaults(meta));$("chirp").value=state.chirp;$("chirpSlider").value=state.chirp;}
+  $("rx").replaceChildren(...Array.from({length:meta.receivers},(_,k)=>new Option(`RX${k}`,String(k))));
   $("record").textContent =
-    `Test 63 · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX`;
+    `${entry.label} · ${meta.diameter_mm} mm ${meta.material} ball · ${meta.parameters.speed.toFixed(2)} m/s · ${(meta.parameters.f_start / 1e9).toFixed(1)} GHz · ${meta.frames} frames × ${meta.chirps_per_frame} chirps × ${meta.samples} samples × ${meta.receivers} RX`;
   $("chirpSlider").max = meta.total_chirps - 1;
   $("fftNote").textContent =
     `Complex Hann-window FFT: ${meta.samples} acquired samples, ${2 ** Math.ceil(Math.log2(meta.samples))} FFT points. Fourier resolution ${(meta.parameters.fs / meta.samples / 1000).toFixed(2)} kHz; zero-padded bin spacing ${(meta.parameters.fs / 2 ** Math.ceil(Math.log2(meta.samples)) / 1000).toFixed(2)} kHz. Frequency = range beat + Doppler.`;
@@ -871,14 +884,14 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261010range18',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261010datasets19',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};
       exporter.postMessage({meta,points,result,settings,url:location.href});
     });
     const url=URL.createObjectURL(new Blob([bytes],{type:'application/x-hdf5'})),link=document.createElement('a');
-    link.href=url;link.download='fmcw-test63-analysis.h5';link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
+    link.href=url;link.download=`fmcw-${meta.id}-analysis.h5`;link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
   }catch(error){status(`HDF5 export: ${error.message}`,true);}
   finally{button.disabled=busy||!analysisComplete;}
 };

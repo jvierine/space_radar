@@ -32,6 +32,7 @@
           </div>
         </div>
         <div class="fields">
+          <label>Recording<select id="dataset" aria-label="Recording by shot number and date" disabled><option>Loading recordings…</option></select></label>
           <label>Voltage channel<select id="rx"><option value="0">RX0</option><option value="1">RX1</option><option value="2">RX2</option><option value="3">RX3</option></select></label><label>Voltage component<select id="component"><option value="0">Real</option><option value="2">Imaginary</option></select></label><label>Raw ±counts<input id="rawScale" type="number" value="2500" min="1" /></label>
           <label>Residual ±counts<input id="subScale" type="number" value="100" min="1" /></label>
           <label>Spectrum span (dB)<input id="span" type="number" value="70" min="10" max="140" /></label>
@@ -198,7 +199,7 @@
       · Rust/Wasm DSP, WebGL2 maps · <a href="../sim/">Simulator</a> ·
       <a href="../slides/">Radar lecture</a> · <a href="../slides/radial-fft/">Coherent integration slides</a>
     </footer>
-    <script type="module" src="app.mjs?v=20261010range18"></script>
-    <script type="module" src="beam-ui.mjs?v=20261010loss2db17"></script>
+    <script type="module" src="app.mjs?v=20261010datasets19"></script>
+    <script type="module" src="beam-ui.mjs?v=20261010datasets19"></script>
   </body>
 </html>

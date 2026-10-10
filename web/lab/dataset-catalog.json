@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "datasets": [
+    {
+      "id": "test63",
+      "label": "Shot 63 \u00b7 2026-07-23",
+      "path": "datasets/test63/"
+    }
+  ]
+}

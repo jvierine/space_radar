@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {Worker} from 'node:worker_threads';
 const worker=new Worker(new URL('./gpu_worker_host.mjs',import.meta.url),{workerData:{gpu:false}});
 const meta=JSON.parse(fs.readFileSync('web/lab/datasets/test63/metadata.json'));
+if(process.env.FMCW_TEST_DATASET_PATH)meta.basePath=process.env.FMCW_TEST_DATASET_PATH;
 let resolve,reject;let expectedType='background';const points=[];
 const timer=setTimeout(()=>reject(Error('Scan test timeout')),60000);
 const done=new Promise((r,j)=>{resolve=r;reject=j;});

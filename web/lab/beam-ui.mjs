@@ -1,4 +1,4 @@
-import {restoreControls} from './gui-state.mjs?v=20261010loss2db17';
+import {restoreControls} from './gui-state.mjs?v=20261010datasets19';
 import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261010loss2db17';
 const section=document.createElement('section');
 section.className='card';
@@ -30,7 +30,7 @@ rcsSection.innerHTML=`<h3>RCS and equivalent metallic-sphere diameter</h3>
 section.querySelector('#beamResults').insertBefore(rcsSection,section.querySelector('.beam-marginals'));
 restoreControls(section);
 const button=section.querySelector('#beamSearch'),steps=section.querySelector('#beamSteps'),status=section.querySelector('#beamStatus'),results=section.querySelector('#beamResults');
-const worker=new Worker('beam-worker.mjs?v=20261010loss2db17',{type:'module'});
+const worker=new Worker('beam-worker.mjs?v=20261010datasets19',{type:'module'});
 let current=null,mainBusy=false,beamBusy=false,id=0,lastBeam=null,pendingAutomatic=false;
 function renderRcs() {
  if(!lastBeam || !current)return;

@@ -1,9 +1,9 @@
 import {jointBeam} from './joint-beam.mjs';
 import {projectReceivers} from './beamforming.mjs?v=20261010loss2db17';
 const cache=new Map();
-async function channel(spec){
+async function channel(spec,basePath){
  if(cache.has(spec.sha256))return cache.get(spec.sha256);
- const response=await fetch('datasets/test63/'+spec.file);
+ const response=await fetch(basePath+spec.file);
  if(!response.ok)throw Error('Cannot load all four receiver streams.');
  const bytes=await response.arrayBuffer();
  if(bytes.byteLength!==spec.bytes)throw Error('Receiver stream length mismatch.');
@@ -17,7 +17,7 @@ onmessage=async({data:job})=>{
   const {meta,match}=job;
   if(meta.transport.length!==4)throw Error('This joint fit requires four synchronized receivers.');
   postMessage({id:job.id,type:'progress',text:'Loading and verifying four synchronized receiver streams…'});
-  const receivers=await Promise.all(meta.transport.map(channel));
+  const receivers=await Promise.all(meta.transport.map(spec=>channel(spec,meta.basePath??'datasets/test63/')));
   engine??=(await WebAssembly.instantiateStreaming(fetch('core.wasm?v=20261010loss2db17'),{})).instance.exports;
   const p=meta.parameters;
   const ptr=engine.allocate(2*meta.samples);

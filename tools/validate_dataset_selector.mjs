@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import {selectDataset,datasetUrl,recordingDefaults} from '../web/lab/datasets.mjs';
+const catalog=JSON.parse(fs.readFileSync('web/lab/dataset-catalog.json'));
+assert.equal(selectDataset(catalog,'https://example.test/lab/').id,'test63');
+const second={id:'shot99',label:'Shot 99 · 2026-08-01',path:'datasets/shot99/'};
+const two={version:1,datasets:[...catalog.datasets,second]};
+const switched=datasetUrl('https://example.test/lab/?gui=old&v=1','shot99');
+assert.equal(selectDataset(two,switched).id,'shot99');assert.equal(new URL(switched).searchParams.has('gui'),false);
+assert.equal(new URL(switched).searchParams.get('v'),'1');
+assert.throws(()=>selectDataset(catalog,switched),/Unknown recording/);
+assert.throws(()=>selectDataset({version:1,datasets:[{...second,path:'../bad/'}]},switched),/Invalid/);
+assert.deepEqual(recordingDefaults({total_chirps:1000,chirps_per_frame:100,frame_of_interest:4}),{start:0,stop:1000,chirp:400,bgStart:0,bgStop:100,scanStart:400,scanStop:500});
+console.log('PASS: catalog selection, shot/date labels, URL state reset, paths and metadata-driven windows');
