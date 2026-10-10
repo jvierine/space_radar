@@ -121,7 +121,5 @@ def integration_slides(s):
     rows=VGroup(s.texrow(r'$K$: chirps; $L_f$: fast FFT length; $L_s$: across-chirp FFT length.',24),
         s.texrow(r'$M$: unique frequency columns requested by the physical grid.',24),
         s.prose('Example: 8 chirps, 329 columns → about 1.6 times less FFT work',26,BLUE),
-        s.prose('than a gap-filled long FFT with comparable padding.',24,BLUE),
-        s.prose('This is an arithmetic estimate; end-to-end runtime has not been compared.',23),
-        s.prose('The saving is unused-column work and idle gaps, not a change in coherent SNR.',23)).arrange(DOWN,buff=.24).move_to(DOWN*1.95)
+        s.prose('than a gap-filled long FFT with comparable padding.',24,BLUE)).arrange(DOWN,buff=.24).move_to(DOWN*1.95)
     s.play(FadeIn(rows));s.wait(1)

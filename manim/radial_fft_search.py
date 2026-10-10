@@ -124,7 +124,44 @@ class RadialFFTSearch(Slide):
             r'The quadratic model approximates motion away from $t_0$.',
         ])
 
-        self.start('Write down the coherent integration',
+        self.start('From a plane wave to the complex baseband signal',
+            'In source-free free space Maxwell equations give the wave equation. A travelling plane wave uses exp(i omega0 t - i k0 x), with k0=omega0/c=2 pi/lambda. The physical electric field is the real part of the complex representation. Complex downconversion multiplies by exp(-i omega0 t), leaving only propagation phase. A scattering amplitude A includes polarization, path attenuation and fixed reflection phase. Subsequent round-trip animation freezes range during propagation; full FMCW phase is introduced later.')
+        self.play(Write(self.eq(r'\nabla^2\mathbf E-\frac{1}{c^2}\frac{\partial^2\mathbf E}{\partial t^2}=0',43).move_to(UP*1.9)))
+        plane_wave=self.eq(r'E(x,t)=A e^{i(\omega_0t-k_0x)},\qquad k_0=\frac{\omega_0}{c}=\frac{2\pi}{\lambda}',43).move_to(UP*.55)
+        self.play(Write(plane_wave))
+        self.play(FadeIn(self.prose('Remove the carrier oscillation by complex downconversion',27,BLUE).move_to(DOWN*.55)))
+        self.play(Write(self.eq(r'z(x,t)=E(x,t)e^{-i\omega_0t}=A e^{-ik_0x}',46).move_to(DOWN*1.5)))
+        self.play(FadeIn(self.texrow(r'The physical electric field is $\Re\{E\}$; $z=I+iQ$ retains amplitude and propagation phase.',26).move_to(DOWN*2.65)))
+        self.wait(1)
+
+        self.start('The echo phase comes from the round-trip distance',
+            'Carrier propagation phase magnitude is wave number times total path length: (2 pi/lambda) times 2R. The outgoing and returning legs each contribute 2 pi R/lambda. Animation freezes range during propagation. With the exp(+i omega t) convention the echo has exp(-i 4 pi R/lambda); conjugated I/Q reverses this sign. A fixed reflection phase is absorbed into the complex amplitude. This is the carrier explanation; the later full FMCW model also includes chirp delay and slope.')
+        self.play(Write(self.eq(r'z(t)=I(t)+iQ(t)=A e^{-ik_0\,2R(t)}=A e^{-i4\pi R(t)/\lambda}',39).move_to(UP*2.5)))
+        left=np.array([-4.8,.5,0]);right=np.array([4.8,.5,0])
+        endpoints=VGroup(Dot(left,color=BLUE,radius=.12),Dot(right,color=ORANGE,radius=.12))
+        labels=VGroup(self.prose('Radar',28,BLUE).next_to(endpoints[0],DOWN,buff=.6),
+            self.prose('Target',28,ORANGE).next_to(endpoints[1],DOWN,buff=.6))
+        outgoing=Arrow(left+UP*.45,right+UP*.45,buff=.2,color=BLUE)
+        returning=Arrow(right+DOWN*.45,left+DOWN*.45,buff=.2,color=ORANGE)
+        self.play(FadeIn(endpoints),FadeIn(labels))
+        self.play(GrowArrow(outgoing),Write(self.eq(r'\text{Outward path: }R(t)',32).move_to(UP*1.6)))
+        packet=ParametricFunction(lambda u:np.array([u,.15*np.sin(15*u)*np.exp(-3*u*u),0]),
+            t_range=[-1,1],color=BLUE,stroke_width=5).move_to(left+UP*.45)
+        self.play(FadeIn(packet))
+        self.play(packet.animate.move_to(right+UP*.45),run_time=2,rate_func=linear)
+        self.play(FadeOut(packet),GrowArrow(returning))
+        return_label=self.eq(r'\text{Return path: }R(t)',32).move_to(DOWN*.85)
+        self.play(Write(return_label))
+        packet.set_color(ORANGE).move_to(right+DOWN*.45)
+        self.play(FadeIn(packet))
+        self.play(packet.animate.move_to(left+DOWN*.45),run_time=2,rate_func=linear)
+        self.play(FadeOut(packet))
+        propagation_equation=self.eq(r'\phi_{\rm path}(t)=\underbrace{\frac{2\pi}{\lambda}}_{\text{phase per metre}}\underbrace{2R(t)}_{\text{there and back}}=\frac{4\pi R(t)}{\lambda}',36).move_to(DOWN*1.95)
+        self.play(Write(propagation_equation))
+        self.play(FadeIn(self.texrow(r'After carrier removal: $z(t)=A e^{-i4\pi R(t)/\lambda}=Aq(t)$, $\lambda=c/f_c$. Reflection phase is included in $A$.',23).move_to(DOWN*3.0)))
+        self.wait(1)
+
+        self.start('Coherent integration',
             'The inner product is s_b=sum_j conjugate(q_j)*z_bj over acquired samples. It is evaluated separately per RX and for both stored-I/Q orientations. The template can include the optional receiver response at direct verification.')
         self.play(FadeIn(self.prose('To add the echo constructively: undo its predicted phase, then sum.',28).move_to(UP*2.35)))
         self.play(Write(self.eq(r's_b=\sum_j q_j^*z_{b,j}',46).move_to(UP*1.3)))
