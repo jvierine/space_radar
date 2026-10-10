@@ -85,9 +85,6 @@ def export(scene, root):
     guard_name = "navigation-" + hashlib.sha256(guard).hexdigest()[:12] + ".js"
     (dest / "index_assets" / guard_name).write_bytes(guard)
     page = page.replace("</body>", f'<script src="index_assets/{guard_name}"></script>\n</body>')
-    if scene == "RadialFFTSearch":
-        page = page.replace("</body>", '<a href="https://juha.no/fmcw/lab/" target="_blank" rel="noopener" style="position:fixed;left:18px;bottom:14px;z-index:1000;background:white;color:#176BB0;padding:8px 12px;border:1px solid #176BB0;border-radius:6px;font:16px Arial;text-decoration:none">Open laboratory ↗</a>\n</body>')
-        page = page.replace("</body>", '<a id="script-provenance" href="https://github.com/jvierine/space_radar/blob/main/manim/radial_fft_search.py" target="_blank" rel="noopener" style="position:fixed;left:12px;top:6px;z-index:1000;color:#556575;background:white;font:11px Arial;text-decoration:none">Source: radial_fft_search.py</a>\n</body>')
     (dest / "index.html").write_text(credit_author(page))
     print(f"{scene}: {len(frames)} nonblank slide endings; exported to {dest}", flush=True)
 
