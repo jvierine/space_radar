@@ -1,6 +1,6 @@
 import {visibleColorRange} from './color-range.mjs?v=20261010adaptive16';
 import {drawMath,ensureMath} from './math-labels.mjs?v=20261010loss2db17';
-import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261010loss2db17';
+import {registerPlot,restorePlot,saveState} from './gui-state.mjs?v=20261010datasets19';
 const fg = "#20252b",
   grid = "#d5dce1",
   gold = "#b45c00",
