@@ -80,3 +80,15 @@ node tools/validate_complexity_counts.mjs
 
 Commands run from the repository root; measurement-dependent tests need prepared
 Test 63 data. Python commands use base conda; scientific outputs use HDF5.
+
+## Coherent time–range map
+
+Playback adds one range column per completed coherent train. The best joint
+trajectory fit supplies velocity, acceleration, and four complex receive beam
+weights; all three remain fixed across the column. Each range is evaluated
+with the full FMCW template, using complex antenna summation and temporal
+coherent integration. Noise is propagated as `(qᴴq)(wᴴCw)` from the quiet
+receive covariance. Color is excess matched SNR in dB, floored at 0 dB;
+selection of the peak and its weights can bias noisy estimates. Gaps remain
+blank. The current range profile and all profile powers, noise powers, scores,
+weights and motion parameters are included in the HDF5 download.

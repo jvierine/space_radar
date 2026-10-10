@@ -12,10 +12,13 @@ worker.on('message',m=>{
   if(m.type==='error')throw Error(m.message);
   if(m.type==='background'&&expectedType==='background'){
    expectedType='complete';worker.postMessage({type:'period',period:25.37e-6});
-   worker.postMessage({type:'search',algorithm:'fft',computeBackend:'cpu',start:750,pulses:8,period:25.37e-6,receiver:false,noiseStart:0,noiseStop:125,grid:{xMin:.3,xMax:.3,yMin:5e5,yMax:5e5,vMin:-320,vMax:-320},loss:5,scan:true,scanStart:750,scanStop:762,scanStride:10,beamSteps:3});
+   worker.postMessage({type:'search',algorithm:'fft',computeBackend:'cpu',start:750,pulses:8,period:25.37e-6,receiver:false,noiseStart:0,noiseStop:125,grid:{xMin:.2,xMax:.4,yMin:5e5,yMax:5e5,vMin:-320,vMax:-320},loss:5,scan:true,scanStart:750,scanStop:762,scanStride:10,beamSteps:3});
   }
   if(m.type==='match'&&m.result.scanPoint){
    const r=m.result;points.push(r.start);assert.equal(r.searchReceivers,4);assert.equal(r.beam.single.length,4);assert.equal(r.beam.phases.length,4);assert(Number.isFinite(r.beam.peak));
+   assert(r.rangeProfile.ranges.length>1);assert.equal(r.rangeProfile.velocity,r.best[1]);assert.equal(r.rangeProfile.acceleration,r.best[2]);
+   assert.deepEqual([...r.rangeProfile.weights],[...r.beam.weights]);assert(r.rangeProfile.snrDb.every(Number.isFinite));
+   assert(r.rangeProfile.noisePower.every(v=>v>0));
   }
   if(m.type==='complete'){
    assert.deepEqual(points,[750,751,752,753,754],'Every contained eight-chirp train, even with obsolete stride input');

@@ -7,6 +7,12 @@ export async function writeAnalysis(h5,payload) {
     if(!data?.length)return;
     return g.create_dataset({name,data: dtype==='<f'?Float32Array.from(data):Float64Array.from(data),shape:shape??[data.length],dtype});
   };
+  const rangeProfile=(parent,p)=>{
+    if(!p)return;
+    const g=parent.create_group('coherent_range_profile');
+    for(const key of ['ranges','observedPower','noisePower','score','snrDb','weights'])dataset(g,key,p[key]);
+    for(const key of ['velocity','acceleration','peakRange','normalization'])if(p[key]!==undefined)attr(g,key,p[key]);
+  };
   try {
     attr(file,'schema','fmcw-analysis-2');attr(file,'joint_fit','Bounded Nelder-Mead variable-projection GLS; complex receive amplitudes solved analytically at each motion trial. White temporal noise; full background receive covariance. Beam excess SNR subtracts fitted-amplitude noise contribution; trajectory-search selection bias remains.');;attr(file,'created_utc',new Date().toISOString());
     attr(file,'source_url',payload.url);attr(file,'recording',payload.meta);attr(file,'settings',payload.settings);
@@ -44,7 +50,7 @@ export async function writeAnalysis(h5,payload) {
       const trains=file.create_group('trains');
       for(const p of points){
         const g=trains.create_group(`chirp_${p.start}`);attr(g,'best',p.best);attr(g,'model',p.model??'radial');attr(g,'grid',p.grid);
-        attr(g,'reference_starts',p.referenceStarts??[]);
+        attr(g,'reference_starts',p.referenceStarts??[]);rangeProfile(g,p.rangeProfile);
         // Preserve every beam output, including the three MAX projections, powers and gain increments.
         for(const [key,value] of Object.entries(p.beam)){
           if(Array.isArray(value)&&value.length&&value.every(x=>ArrayBuffer.isView(x)))dataset(g,key,value.flatMap(x=>Array.from(x)),[value.length,value[0].length]);
@@ -54,7 +60,7 @@ export async function writeAnalysis(h5,payload) {
       }
     }
     if(payload.result){
-      const r=payload.result,g=file.create_group('current_match');
+      const r=payload.result,g=file.create_group('current_match');rangeProfile(g,r.rangeProfile);
       for(const key of ['start','pulses','period','midpoint','model','grid','radialSpec','backend','seconds','searchReceivers','noiseModel','noiseSamples','noisePower','noiseSamplesPerRx','noiseCalibrated'])if(r[key]!==undefined)attr(g,key,r[key]);
       for(const key of ['best','cube','nodes','observed','fit','scanResults','aliasCandidates'])if(r[key])dataset(g,key,r[key],key==='observed'||key==='fit'?[r[key].length/2,2]:undefined,key==='cube'?'<f':'<d');
       if(r.fit&&r.observed)dataset(g,'residual',Array.from(r.observed,(v,i)=>v-r.fit[i]),[r.fit.length/2,2]);

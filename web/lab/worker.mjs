@@ -1,6 +1,7 @@
+import {coherentRangeProfile} from './coherent-range.mjs?v=20261010range18';
 import {jointBeam} from './joint-beam.mjs';
 import {noiseMetric,fittedNoiseBias} from './noise-metric.mjs';
-import {projectReceivers} from './beamforming.mjs?v=20261010loss2db17';
+import {projectReceivers} from './beamforming.mjs?v=20261010range18';
 import {commonValid,prepareReceiverTrains} from './receiver-trains.mjs?v=20261010loss2db17';
 import {runRadial} from './radial-backend.mjs?v=20261010loss2db17';
 let wasm,
@@ -20,6 +21,31 @@ const copy = () =>
     wasm.result_len(),
   ).slice();
 const yieldUI = () => new Promise((r) => setTimeout(r, 0));
+function attachBeamProfile(candidate,msg,receivers){
+  const p=meta.parameters,start=candidate.start,n=candidate.pulses;
+  (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
+  const projections=projectReceivers(receivers,copy(),{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses:n,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:msg.noiseStart,noiseStop:msg.noiseStop,conjugated:candidate.best[4]>0,fullBandwidth:true});
+  candidate.beam=jointBeam(projections);
+  // RCS sampled coherent time is unchanged by receiver phases.
+  (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
+  const q=copy();let sum=0,energy=0;
+  for(let i=0;i<q.length;i+=2){const a=Math.hypot(q[i],q[i+1]);sum+=a;energy+=a*a;}
+  candidate.beam.T_coh=n*meta.samples/p.fs;
+  candidate.beam.effectiveTime=candidate.beam.T_coh;
+  candidate.beam.analysisBandwidth=1/candidate.beam.T_coh;
+  candidate.beam.analysisNoisePower=Float64Array.from(projections.rawNoisePower,v=>v/(p.fs*candidate.beam.T_coh));
+  candidate.beam.beamAnalysisNoisePower=candidate.beam.reference/(energy*p.fs*candidate.beam.T_coh);
+  candidate.beam.analysisObservedPower=Float64Array.from(candidate.beam.channelPower,c=>c.observed/(energy*p.fs*candidate.beam.T_coh));
+  candidate.beam.rawNoisePower=projections.rawNoisePower;candidate.beam.noiseSamples=projections.noiseSamples;candidate.beam.noiseCalibrated=projections.noiseCalibrated;candidate.beam.noiseMethod=projections.noiseMethod;candidate.beam.noiseSamplesPerRx=projections.noiseSamplesPerRx;
+  candidate.beam.referenceStarts=projections.referenceStarts;candidate.beam.meanCount=projections.meanCount;
+  if(candidate.model==='radial-quadratic'){
+    const ranges=Float64Array.from({length:candidate.grid.xN},(_,i)=>candidate.grid.xMin+i*(candidate.grid.xMax-candidate.grid.xMin)/Math.max(1,candidate.grid.xN-1));
+    const rawCovariance=Float64Array.from(projections.noiseCovariance,v=>v/projections.templateEnergy);
+    candidate.rangeProfile=coherentRangeProfile({receivers,means:projections.means,start,pulses:n,samples:meta.samples,weights:candidate.beam.weights,rawCovariance,ranges,conjugated:candidate.best[4]>0,
+      templateAt:r=>{wasm.radial_template(r,candidate.best[1],candidate.best[2],n,+msg.receiver);return copy();}});
+    candidate.rangeProfile.velocity=candidate.best[1];candidate.rangeProfile.acceleration=candidate.best[2];candidate.rangeProfile.peakRange=candidate.best[0];
+  }
+}
 async function channel(receiver) {
   if(streams.has(receiver))return streams.get(receiver);
   const spec=meta.transport[receiver];
@@ -268,22 +294,7 @@ onmessage = async ({ data: msg }) => {
             if(prepared<0){invalidSkipped++;continue;}
             const candidate=await bank({...msg,scan:false},n,start,token,'time scan');
             if(!candidate)return;
-            const p=meta.parameters;
-            (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
-            const projections=projectReceivers(receivers,copy(),{samples:meta.samples,rows:meta.total_chirps,perFrame:meta.chirps_per_frame,start,pulses:n,bgStart:bgRange[0],bgStop:bgRange[1],noiseStart:msg.noiseStart,noiseStop:msg.noiseStop,conjugated:candidate.best[4]>0,fullBandwidth:true});
-            candidate.beam=jointBeam(projections);
-            // RCS sampled coherent time is unchanged by receiver phases.
-            (candidate.model==='radial-quadratic'?wasm.radial_template:wasm.template_values)(...candidate.best.slice(0,3),n,+msg.receiver);
-            const q=copy();let sum=0,energy=0;
-            for(let i=0;i<q.length;i+=2){const a=Math.hypot(q[i],q[i+1]);sum+=a;energy+=a*a;}
-            candidate.beam.T_coh=n*meta.samples/p.fs;
-            candidate.beam.effectiveTime=candidate.beam.T_coh;
-            candidate.beam.analysisBandwidth=1/candidate.beam.T_coh;
-            candidate.beam.analysisNoisePower=Float64Array.from(projections.rawNoisePower,v=>v/(p.fs*candidate.beam.T_coh));
-            candidate.beam.beamAnalysisNoisePower=candidate.beam.reference/(energy*p.fs*candidate.beam.T_coh);
-            candidate.beam.analysisObservedPower=Float64Array.from(candidate.beam.channelPower,c=>c.observed/(energy*p.fs*candidate.beam.T_coh));
-            candidate.beam.rawNoisePower=projections.rawNoisePower;candidate.beam.noiseSamples=projections.noiseSamples;candidate.beam.noiseCalibrated=projections.noiseCalibrated;candidate.beam.noiseMethod=projections.noiseMethod;candidate.beam.noiseSamplesPerRx=projections.noiseSamplesPerRx;
-            candidate.beam.referenceStarts=projections.referenceStarts;candidate.beam.meanCount=projections.meanCount;
+            attachBeamProfile(candidate,msg,receivers);
             candidate.scanPoint=true;send('match',{result:candidate});
             scan.push(start,candidate.best[3],...candidate.best.slice(0,3));
             send('scan-progress',{fraction:(start+n-msg.scanStart)/(msg.scanStop-msg.scanStart),start});
@@ -318,6 +329,7 @@ onmessage = async ({ data: msg }) => {
           if (!result) return;
           result.scanResults = scan;
         }
+        attachBeamProfile(result,msg,await Promise.all(meta.transport.map((_,i)=>channel(i))));
         results.push(result);
         send("match", { result, interim: !!msg.compare });
       }

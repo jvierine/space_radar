@@ -3,7 +3,7 @@ import {initialState,restoreControls,initializeState,saveState} from './gui-stat
 import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010adaptive16";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261010loss2db17", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261010range18", { type: "module" });
 let meta,
   period,
   framePeriod,
@@ -87,6 +87,7 @@ const iq = new LinePlot("iqPlot"),
   rangePlot = new LinePlot("rangePlot"),
   residualPlot = new LinePlot("residualPlot"),
   scan = new LinePlot("scanPlot", (k) => selectChirp(Math.round(k)));
+const coherentMap=new Heatmap('coherentRangeMap'),coherentProfile=new LinePlot('coherentRangeProfile');
 const scanPoints=new Map();
 const scanPlots=Object.fromEntries(['scanRange','scanVelocity','scanAcceleration','scanPhases','scanSnr','scanRcs','scanDiameter'].map(id=>[id,new LinePlot(id)]));
 function updateScan(r) {
@@ -96,12 +97,36 @@ function updateScan(r) {
     const x=r.best[2]*r.midpoint-r.best[0],range=Math.hypot(x,r.best[1]);
     kinematics=[range,r.best[2]*x/range,r.best[2]**2*r.best[1]**2/range**3];
   }
-  scanPoints.set(r.start,{start:r.start,midpoint:r.midpoint,kinematics,pulses:r.pulses,best:Array.from(r.best),model:r.model,grid:r.grid,referenceStarts:r.referenceStarts,beam:r.beam});
+  scanPoints.set(r.start,{start:r.start,midpoint:r.midpoint,kinematics,pulses:r.pulses,best:Array.from(r.best),model:r.model,grid:r.grid,referenceStarts:r.referenceStarts,beam:r.beam,rangeProfile:r.rangeProfile});
   drawScanHistory();
+}
+function drawCoherentMap(points){
+  const rows=points.filter(p=>p.rangeProfile);
+  if(!rows.length)return;
+  const first=rows[0],ranges=first.rangeProfile.ranges,nr=ranges.length;
+  const time=p=>Number(clock(p.start))+p.midpoint-meta.parameters.T_adc;
+  const lo=time(first),hi=time(rows.at(-1)),step=period;
+  const columns=Math.max(1,Math.min(8192,Math.round((hi-lo)/step)+1));
+  const image=new Float32Array(nr*columns).fill(NaN);
+  for(const p of rows){
+    if(p.rangeProfile.ranges.length!==nr)continue;
+    const column=Math.min(columns-1,Math.max(0,Math.round((time(p)-lo)/(hi-lo||1)*(columns-1))));
+    for(let r=0;r<nr;r++)image[r*columns+column]=p.rangeProfile.snrDb[r];
+  }
+  $('coherentRangeView').hidden=false;
+  coherentMap.set(image,columns,nr,{x0:lo-step/2,x1:hi+step/2,y0:ranges[0],y1:ranges.at(-1)===ranges[0]?ranges[0]+.001:ranges.at(-1),xLabel:'Coherent train midpoint (seconds since file start)',xFormat:t=>t.toFixed(6),yLabel:'Midpoint range (m)',yMath:String.raw`r_0\;(\mathrm{m})`,yFormat:r=>r.toFixed(3),colorLabel:'Beamformed SNR (dB)',lo:0,hi:rows.reduce((peak,p)=>p.rangeProfile.snrDb.reduce((m,v)=>Number.isFinite(v)?Math.max(m,v):m,peak),1),autoColor:true,kind:1,colorDecimals:1,topLabel:'Peak velocity, acceleration and antenna phasing held fixed in each column'});
+}
+function drawCoherentProfile(r){
+  if(!r.rangeProfile)return;
+  if(!scanPoints.size)drawCoherentMap([r]);
+  const p=r.rangeProfile;$('coherentRangeView').hidden=false;
+  coherentProfile.set([{name:'Four-RX coherent beam',color:'#0072b2',x:Array.from(p.ranges),y:Array.from(p.snrDb)}],{x0:p.ranges[0],x1:p.ranges.at(-1),xLabel:'Midpoint range (m)',xMath:String.raw`r_0\;(\mathrm{m})`,yLabel:'Beamformed SNR (dB)',y0:0});
+  $('coherentRangeNote').textContent=`Train ${r.start}–${r.start+r.pulses-1}: velocity ${p.velocity.toFixed(2)} m/s, acceleration ${p.acceleration.toPrecision(5)} m/s². The peak solution's complex antenna weights are fixed across all ranges. Full FMCW matched integration; noise propagated through the same weights. Colors floor at 0 dB; gaps indicate trains not analyzed.`;
 }
 function drawScanHistory() {
   if(!scanPoints.size)return;
   const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start),x=points.map(p=>Number(clock(p.start))+p.midpoint-meta.parameters.T_adc);
+  drawCoherentMap(points);
   const cfg={x0:Number(clock(num('scanStart'))),x1:Number(clock(num('scanStop'))),xLabel:'Seconds since file start',mode:'scatter',xFormat:t=>t.toFixed(5)};
   const line=(name,color,y)=>({name,color,x,y});
   const colors=['#0072b2','#d55e00','#009e73','#cc79a7','#111111'];
@@ -443,6 +468,7 @@ function axis(lo, hi, n) {
 function showMatch(r) {
   window.dispatchEvent(new CustomEvent("fmcw-match", { detail: { meta, match: r } }));
   result = r;
+  drawCoherentProfile(r);
   if(r.scanPoint)updateScan(r);
   vx.resetZoom();vy.resetZoom();
   state.pulses = r.pulses;
@@ -713,6 +739,7 @@ worker.onmessage = ({ data: m }) => {
     );
   } else if(m.type==='scan-start') {
     scanPoints.clear();$('scanTimeline').hidden=false;
+    $('coherentRangeView').hidden=true;
     for(const plot of Object.values(scanPlots))plot.set([],{x0:Number(clock(m.start)),x1:Number(clock(m.stop)),xLabel:'Seconds since file start'});
   } else if(m.type==='scan-progress') {
     $('progress').value=m.fraction;status(`Analyzed train ${m.start} · ${(100*m.fraction).toFixed(1)}%`);
@@ -765,7 +792,7 @@ $("pulses").onchange = () => {
 };
 $("traceSub").onchange = updateSelection;
 $("full").onclick = safe(() => {
-  for(const plot of [...maps,vx,vy])plot.resetZoom();
+  for(const plot of [...maps,vx,vy,coherentMap])plot.resetZoom();
   state.start=0;state.stop=meta.total_chirps;view();
 });
 $("scan").onclick = () => run(false, true);
@@ -844,7 +871,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261010loss2db17',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261010range18',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};

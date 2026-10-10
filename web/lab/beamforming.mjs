@@ -144,5 +144,5 @@ export function projectReceivers(receivers, q, {samples, rows, perFrame, start, 
     return out;
   };
   const energy=q.reduce((sum,v)=>sum+v*v,0);
-  return {templateEnergy:energy,noiseCalibrated,noiseMethod,noiseSamplesPerRx,rawNoisePower:noiseCovariance?Float64Array.from({length:4},(_,a)=>noiseCovariance[2*(4*a+a)]):undefined,noiseSamples,event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
+  return {means,templateEnergy:energy,noiseCalibrated,noiseMethod,noiseSamplesPerRx,rawNoisePower:noiseCovariance?Float64Array.from({length:4},(_,a)=>noiseCovariance[2*(4*a+a)]):undefined,noiseSamples,event:project(start),noise:fullBandwidth?[]:referenceStarts.map(k=>project(k,false)),noiseCovariance:noiseCovariance?Float64Array.from(noiseCovariance,v=>v*energy):undefined,referenceStarts,meanCount:Math.min(...meanCounts),meanCounts};
 }
