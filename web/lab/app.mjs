@@ -1,10 +1,10 @@
-import {selectDataset,datasetUrl,recordingDefaults} from './datasets.mjs?v=20261010shots20';
+import {selectDataset,datasetUrl,recordingDefaults,voltageColorRange} from './datasets.mjs?v=20261010scale21';
 import {estimateRcs,diameterRoots,snrDb} from './rcs.mjs?v=20261010loss2db17';
-import {initialState,restoreControls,initializeState,saveState,applyRecordingDefaults} from './gui-state.mjs?v=20261010shots20';
-import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010shots20";
+import {initialState,restoreControls,initializeState,saveState,applyRecordingDefaults} from './gui-state.mjs?v=20261010scale21';
+import { Heatmap, LinePlot, db } from "./plots.mjs?v=20261010scale21";
 const $ = (id) => document.getElementById(id),
   num = (id) => Number($(id)?.value ?? state[id === "noiseStart" ? "bgStart" : id === "noiseStop" ? "bgStop" : id]),
-  worker = new Worker("worker.mjs?v=20261010shots20", { type: "module" });
+  worker = new Worker("worker.mjs?v=20261010scale21", { type: "module" });
 let catalogReady=false;
 let meta,
   period,
@@ -239,7 +239,9 @@ function drawView() {
     let values = image.values,
       c = { ...base };
     if (i < 2) {
-      const range = num(i === 0 ? "rawScale" : "subScale");
+      const scaleId=i===0?"rawScale":"subScale";
+      if($("autoVoltageScale").checked)$(scaleId).value=voltageColorRange(values);
+      const range = num(scaleId);
       c = { ...c, lo: -range, hi: range, kind: 0, colorLabel: "ADC counts" };
     } else {
       values = Float32Array.from(values, (x) =>
@@ -785,8 +787,10 @@ $("rx").onchange=()=>{
   worker.postMessage({type:'rx',rx:state.rx,bgStart:state.bgStart,bgStop:state.bgStop});
 };
 $("fftSub").onchange = safe(view);
-for (const id of ["rawScale", "subScale", "span"])
-  $(id).onchange = safe(drawView);
+for (const id of ["rawScale", "subScale"])
+  $(id).onchange = safe(()=>{$("autoVoltageScale").checked=false;drawView();});
+$("span").onchange=safe(drawView);
+$("autoVoltageScale").onchange=safe(drawView);
 $("chirp").onchange = () => selectChirp(num("chirp"));
 $("chirpSlider").oninput = () => selectChirp(num("chirpSlider"));
 $("pulses").onchange = () => {
@@ -885,7 +889,7 @@ $('download').onclick=async()=>{
     drawScanHistory();
     const points=[...scanPoints.values()].sort((a,b)=>a.start-b.start).map(p=>({...p,time:Number(clock(p.start))+p.midpoint-meta.parameters.T_adc}));
     const settings={controls:Object.fromEntries([...document.querySelectorAll('input[id],select[id]')].map(el=>[el.id,el.type==='checkbox'?el.checked:el.value])),background:[state.bgStart,state.bgStop],analysis:[state.scanStart,state.scanStop],period,framePeriod};
-    const exporter=new Worker('export-worker.mjs?v=20261010shots20',{type:'module'});
+    const exporter=new Worker('export-worker.mjs?v=20261010scale21',{type:'module'});
     const bytes=await new Promise((resolve,reject)=>{
       exporter.onmessage=({data})=>{exporter.terminate();data.error?reject(Error(data.error)):resolve(data.bytes);};
       exporter.onerror=e=>{exporter.terminate();reject(Error(e.message));};

@@ -128,3 +128,9 @@ the earlier hypervelocity files' `projectile_size` variable.
 After importing both excerpts, run `conda run -n base python
 tools/configure_hypervelocity_datasets.py` to apply the shot-specific quiet
 windows, display selections and velocity bounds and register both records.
+
+Hypervelocity recordings default to Auto voltage scale. Raw and residual
+heatmaps each use a symmetric scale covering all finite displayed values,
+with 2% headroom, recalculated after channel/component/window changes.
+Editing either count limit switches to manual scaling. Old shared links
+without the checkbox inherit the recording default. FFT dB scaling is unchanged.

@@ -18,3 +18,9 @@ export function recordingDefaults(meta){
   const start=Math.max(0,Math.min(total-per,Math.floor(meta.frame_of_interest??0)*per));
   return {start:0,stop:total,chirp:start,bgStart:0,bgStop:Math.min(per,total),scanStart:start,scanStop:Math.min(total,start+per)};
 }
+
+export function voltageColorRange(values){
+  let peak=0;
+  for(const value of values)if(Number.isFinite(value))peak=Math.max(peak,Math.abs(value));
+  return Math.max(1,Math.ceil(peak*1.02));
+}

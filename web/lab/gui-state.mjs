@@ -51,4 +51,5 @@ export function restorePlot(plot) {
 
 export function applyRecordingDefaults(meta){
   if(!initialState && meta.gui_defaults)initialState=structuredClone({version:1,...meta.gui_defaults,fit:false});
+  if(initialState?.controls && initialState.controls.autoVoltageScale===undefined && meta.gui_defaults?.controls?.autoVoltageScale!==undefined)initialState.controls.autoVoltageScale=meta.gui_defaults.controls.autoVoltageScale;
 }
